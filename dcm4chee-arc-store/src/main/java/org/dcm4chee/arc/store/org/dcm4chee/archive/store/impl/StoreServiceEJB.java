@@ -41,18 +41,26 @@
 package org.dcm4chee.arc.store.org.dcm4chee.archive.store.impl;
 
 import org.dcm4che3.data.*;
+import org.dcm4che3.net.Association;
+import org.dcm4che3.net.Status;
 import org.dcm4che3.net.service.DicomServiceException;
 import org.dcm4che3.soundex.FuzzyStr;
+import org.dcm4che3.util.AttributesFormat;
+import org.dcm4che3.util.StreamUtils;
+import org.dcm4che3.util.StringUtils;
 import org.dcm4che3.util.TagUtils;
-import org.dcm4chee.arc.code.CodeService;
+import org.dcm4chee.arc.StorePermissionCache;
+import org.dcm4chee.arc.code.CodeCache;
 import org.dcm4chee.arc.conf.*;
 import org.dcm4chee.arc.entity.*;
+import org.dcm4chee.arc.id.IDService;
 import org.dcm4chee.arc.issuer.IssuerService;
 import org.dcm4chee.arc.patient.PatientMgtContext;
 import org.dcm4chee.arc.patient.PatientService;
 import org.dcm4chee.arc.storage.Storage;
 import org.dcm4chee.arc.storage.WriteContext;
 import org.dcm4chee.arc.store.StoreContext;
+import org.dcm4chee.arc.store.StoreService;
 import org.dcm4chee.arc.store.StoreSession;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -62,12 +70,18 @@ import javax.inject.Inject;
 import javax.persistence.EntityManager;
 import javax.persistence.NoResultException;
 import javax.persistence.PersistenceContext;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.List;
+import javax.servlet.http.HttpServletRequest;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.time.LocalDate;
+import java.util.*;
+import java.util.regex.Pattern;
 
 /**
  * @author Gunter Zeilinger <gunterze@gmail.com>
+ * @author Vrinda Nayak <vrinda.nayak@j4care.com>
  * @since Jul 2015
  */
 @Stateless
@@ -80,17 +94,12 @@ public class StoreServiceEJB {
     private static final String IGNORE_WITH_EQUAL_DIGEST = IGNORE + " with equal digest";
     private static final String REVOKE_REJECTION =
             "{}: Revoke rejection of Instance[studyUID={},seriesUID={},objectUID={}] by {}";
-    private static final int DUPLICATE_REJECTION_NOTE = 0xA770;
-    private static final int SUBSEQUENT_OCCURENCE_OF_REJECTED_OBJECT = 0xA771;;
-    private static final int REJECTION_FAILED_NO_SUCH_INSTANCE = 0xA772;
-    private static final int REJECTION_FAILED_CLASS_INSTANCE_CONFLICT  = 0xA773;
-    private static final int REJECTION_FAILED_ALREADY_REJECTED  = 0xA774;
 
     @PersistenceContext(unitName="dcm4chee-arc")
     private EntityManager em;
 
     @Inject
-    private CodeService codeService;
+    private CodeCache codeCache;
 
     @Inject
     private IssuerService issuerService;
@@ -98,17 +107,25 @@ public class StoreServiceEJB {
     @Inject
     private PatientService patientService;
 
-    public UpdateDBResult updateDB(StoreContext ctx, UpdateDBResult result) throws DicomServiceException {
+    @Inject
+    private StorePermissionCache storePermissionCache;
+
+    @Inject
+    private IDService idService;
+
+    public UpdateDBResult updateDB(StoreContext ctx, UpdateDBResult result)
+            throws DicomServiceException {
         StoreSession session = ctx.getStoreSession();
         ArchiveAEExtension arcAE = session.getArchiveAEExtension();
         ArchiveDeviceExtension arcDev = arcAE.getArchiveDeviceExtension();
         Instance prevInstance = findPreviousInstance(ctx);
         if (prevInstance != null) {
+            Collection<Location> locations = prevInstance.getLocations();
             result.setPreviousInstance(prevInstance);
             LOG.info("{}: Found previous received {}", session, prevInstance);
             if (prevInstance.getSopClassUID().equals(UID.KeyObjectSelectionDocumentStorage)
                     && getRejectionNote(arcDev, prevInstance.getConceptNameCode()) != null)
-                throw new DicomServiceException(DUPLICATE_REJECTION_NOTE,
+                throw new DicomServiceException(StoreService.DUPLICATE_REJECTION_NOTE,
                         "Rejection Note [uid=" + prevInstance.getSopInstanceUID() + "] already received");
             RejectionNote rjNote = getRejectionNote(arcDev, prevInstance.getRejectionNoteCode());
             if (rjNote != null) {
@@ -118,7 +135,7 @@ public class StoreServiceEJB {
                         logInfo(IGNORE_PREVIOUS_REJECTED, ctx, rjNote.getRejectionNoteCode());
                         return result;
                     case REJECT:
-                        throw new DicomServiceException(SUBSEQUENT_OCCURENCE_OF_REJECTED_OBJECT,
+                        throw new DicomServiceException(StoreService.SUBSEQUENT_OCCURENCE_OF_REJECTED_OBJECT,
                                 "Subsequent occurrence of rejected Object [uid=" + prevInstance.getSopInstanceUID()
                                         + ", rejection=" + rjNote.getRejectionNoteCode() + "]");
                     case RESTORE:
@@ -137,8 +154,7 @@ public class StoreServiceEJB {
                         }
                 }
             }
-            List<Location> locations = findLocations(prevInstance);
-            if (containsWithEqualDigest(locations, ctx.getWriteContext().getDigest())) {
+            if (containsWithEqualDigest(locations, ctx.getWriteContext(Location.ObjectType.DICOM_FILE).getDigest())) {
                 logInfo(IGNORE_WITH_EQUAL_DIGEST, ctx);
                 if (rjNote != null) {
                     prevInstance.setRejectionNoteCode(null);
@@ -148,47 +164,117 @@ public class StoreServiceEJB {
                 return result;
             }
             LOG.info("{}: Replace previous received {}", session, prevInstance);
-            deleteLocations(locations);
             deleteInstance(prevInstance, ctx);
         }
-
         CodeEntity conceptNameCode = findOrCreateCode(ctx.getAttributes(), Tag.ConceptNameCodeSequence);
         if (conceptNameCode != null && ctx.getSopClassUID().equals(UID.KeyObjectSelectionDocumentStorage)) {
             RejectionNote rjNote = arcDev.getRejectionNote(conceptNameCode.getCode());
             if (rjNote != null) {
                 result.setRejectionNote(rjNote);
-                boolean revokeRejection = rjNote.isRevokeRejection();
-                rejectInstances(ctx, rjNote, revokeRejection ? null : conceptNameCode);
-                if (revokeRejection)
+                AllowRejectionForDataRetentionPolicyExpired policy =
+                        arcAE.allowRejectionForDataRetentionPolicyExpired();
+                if (rjNote.getRejectionNoteType() == RejectionNote.Type.DATA_RETENTION_POLICY_EXPIRED
+                        && policy == AllowRejectionForDataRetentionPolicyExpired.NEVER) {
+                    throw new DicomServiceException(StoreService.REJECTION_FOR_RETENTION_POLICY_EXPIRED_NOT_AUTHORIZED,
+                            "Rejection for Retentation Policy Expired not authorized");
+                }
+                rejectInstances(ctx, rjNote, conceptNameCode, policy);
+                if (rjNote.isRevokeRejection())
                     return result;
             }
         }
+        AcceptMissingPatientID acceptMissingPatientID = arcAE.acceptMissingPatientID();
+        Instance instance = createInstance(ctx, conceptNameCode, result, acceptMissingPatientID);
+        if (ctx.getLocations().isEmpty())
+            createLocations(ctx, instance, result);
+        else
+            copyLocations(ctx, instance, result);
 
-        Instance instance = createInstance(ctx, conceptNameCode, result);
-        Location location = createLocation(ctx, instance);
         deleteQueryAttributes(instance);
-        result.setLocation(location);
         return result;
     }
 
-    private void rejectInstances(StoreContext ctx, RejectionNote rjNote, CodeEntity rejectionCode)
+    private void rejectInstances(StoreContext ctx, RejectionNote rjNote, CodeEntity rejectionCode,
+                                 AllowRejectionForDataRetentionPolicyExpired policy)
             throws DicomServiceException {
         for (Attributes studyRef : ctx.getAttributes().getSequence(Tag.CurrentRequestedProcedureEvidenceSequence)) {
-            Instance inst = null;
+            Series series = null;
             String studyUID = studyRef.getString(Tag.StudyInstanceUID);
             for (Attributes seriesRef : studyRef.getSequence(Tag.ReferencedSeriesSequence)) {
+                Instance inst = null;
                 String seriesUID = seriesRef.getString(Tag.SeriesInstanceUID);
                 for (Attributes sopRef : seriesRef.getSequence(Tag.ReferencedSOPSequence)) {
                     String classUID = sopRef.getString(Tag.ReferencedSOPClassUID);
                     String objectUID = sopRef.getString(Tag.ReferencedSOPInstanceUID);
                     inst = rejectInstance(ctx, studyUID, seriesUID, objectUID, classUID, rjNote, rejectionCode);
                 }
-                if (inst != null)
-                    deleteSeriesQueryAttributes(inst.getSeries());
+                if (inst != null) {
+                    series = inst.getSeries();
+                    if (rjNote.getRejectionNoteType() == RejectionNote.Type.DATA_RETENTION_POLICY_EXPIRED
+                            && policy == AllowRejectionForDataRetentionPolicyExpired.STUDY_RETENTION_POLICY)
+                        checkExpirationDate(series);
+                    RejectionState rejectionState = rjNote.isRevokeRejection()
+                            ? hasRejectedInstances(series) ? RejectionState.PARTIAL : RejectionState.NONE
+                            : hasNotRejectedInstances(series) ? RejectionState.PARTIAL : RejectionState.COMPLETE;
+                    series.setRejectionState(rejectionState);
+                    if (rejectionState == RejectionState.COMPLETE)
+                        series.setExpirationDate(null);
+                    deleteSeriesQueryAttributes(series);
+                }
             }
-            if (inst != null)
-                deleteStudyQueryAttributes(inst.getSeries().getStudy());
+            if (series != null) {
+                Study study = series.getStudy();
+                if (rjNote.isRevokeRejection()) {
+                    if (study.getRejectionState() == RejectionState.COMPLETE)
+                        study.getPatient().incrementNumberOfStudies();
+                    study.setRejectionState(
+                            hasSeriesWithOtherRejectionState(study, RejectionState.NONE)
+                                    ? RejectionState.PARTIAL
+                                    : RejectionState.NONE);
+                } else {
+                    if (hasSeriesWithOtherRejectionState(study, RejectionState.COMPLETE))
+                        study.setRejectionState(RejectionState.PARTIAL);
+                    else {
+                        study.setRejectionState(RejectionState.COMPLETE);
+                        study.setExpirationDate(null);
+                        study.getPatient().decrementNumberOfStudies();
+                    }
+                }
+                deleteStudyQueryAttributes(study);
+            }
         }
+    }
+
+    private void checkExpirationDate(Series series)
+            throws DicomServiceException {
+        LocalDate studyExpirationDate = series.getStudy().getExpirationDate();
+        if (studyExpirationDate == null)
+            return;
+
+        LocalDate seriesExpirationDate = series.getExpirationDate();
+        if ((seriesExpirationDate != null ? seriesExpirationDate : studyExpirationDate).isAfter(LocalDate.now())) {
+            throw new DicomServiceException(StoreService.RETENTION_PERIOD_OF_STUDY_NOT_YET_EXPIRED,
+                    "Retention Period of Study not yet expired");
+        }
+    }
+
+    private boolean hasRejectedInstances(Series series) {
+        return em.createNamedQuery(Instance.COUNT_REJECTED_INSTANCES_OF_SERIES, Long.class)
+                .setParameter(1, series)
+                .getSingleResult() > 0;
+    }
+
+    private boolean hasNotRejectedInstances(Series series) {
+        return em.createNamedQuery(Instance.COUNT_NOT_REJECTED_INSTANCES_OF_SERIES, Long.class)
+                .setParameter(1, series)
+                .getSingleResult() > 0;
+    }
+
+    private boolean hasSeriesWithOtherRejectionState(Study study, RejectionState rejectionState) {
+        return em.createNamedQuery(Series.COUNT_SERIES_OF_STUDY_WITH_OTHER_REJECTION_STATE, Long.class)
+                .setParameter(1, study)
+                .setParameter(2, rejectionState)
+                .getSingleResult() > 0;
     }
 
     private Instance rejectInstance(StoreContext ctx, String studyUID, String seriesUID,
@@ -196,21 +282,21 @@ public class StoreServiceEJB {
                                     CodeEntity rejectionCode) throws DicomServiceException {
         Instance inst = findInstance(studyUID, seriesUID, objectUID);
         if (inst == null)
-            throw new DicomServiceException(REJECTION_FAILED_NO_SUCH_INSTANCE,
+            throw new DicomServiceException(StoreService.REJECTION_FAILED_NO_SUCH_INSTANCE,
                     "Failed to reject Instance[uid=" + objectUID + "] - no such Instance");
         if (!inst.getSopClassUID().equals(classUID))
-            throw new DicomServiceException(REJECTION_FAILED_CLASS_INSTANCE_CONFLICT,
+            throw new DicomServiceException(StoreService.REJECTION_FAILED_CLASS_INSTANCE_CONFLICT,
                     "Failed to reject Instance[uid=" + objectUID + "] - class-instance conflict");
         CodeEntity prevRjNoteCode = inst.getRejectionNoteCode();
         if (prevRjNoteCode != null) {
-            if (rejectionCode != null && rejectionCode.getPk() == prevRjNoteCode.getPk())
+            if (!rjNote.isRevokeRejection() && rejectionCode.getPk() == prevRjNoteCode.getPk())
                 return inst;
             if (!rjNote.canOverwritePreviousRejection(prevRjNoteCode.getCode()))
-                throw new DicomServiceException(REJECTION_FAILED_ALREADY_REJECTED,
+                throw new DicomServiceException(StoreService.REJECTION_FAILED_ALREADY_REJECTED,
                         "Failed to reject Instance[uid=" + objectUID + "] - already rejected");
         }
-        inst.setRejectionNoteCode(rejectionCode);
-        if (rejectionCode != null)
+        inst.setRejectionNoteCode(rjNote.isRevokeRejection() ? null : rejectionCode);
+        if (!rjNote.isRevokeRejection())
             LOG.info("{}: Reject {} by {}", ctx.getStoreSession(), inst, rejectionCode.getCode());
         else if (prevRjNoteCode != null)
             LOG.info("{}: Revoke Rejection of {} by {}", ctx.getStoreSession(), inst, prevRjNoteCode.getCode());
@@ -236,10 +322,58 @@ public class StoreServiceEJB {
                 arg);
     }
 
+    private Long countLocationsByMultiRef(Integer multiRef) {
+        return em.createNamedQuery(Location.COUNT_BY_MULTI_REF, Long.class)
+                .setParameter(1, multiRef).getSingleResult();
+    }
+
+    private Long countLocationsByUIDMap(UIDMap uidMap) {
+        Long result = em.createNamedQuery(Location.COUNT_BY_UIDMAP, Long.class)
+                .setParameter(1, uidMap).getSingleResult();
+        return result;
+    }
+
+    public Location processLocation(Location location, HashSet<UIDMap> uidMaps) {
+        if (location.getMultiReference() != null) {
+            UIDMap uidMap = location.getUidMap();
+            if (uidMap != null)
+                uidMaps.add(uidMap);
+            if (countLocationsByMultiRef(location.getMultiReference()) > 1)
+                em.remove(location);
+            else {
+                if (uidMap != null)
+                    location.setUidMap(null);
+                markToDelete(location);
+            }
+        } else
+            markToDelete(location);
+        return location;
+    }
+
+    public void removeOrphaned(UIDMap uidMap) {
+        if (countLocationsByUIDMap(uidMap) == 0)
+            em.remove(uidMap);
+    }
+
+    private Location markToDelete(Location location) {
+        location.setInstance(null);
+        location.setStatus(Location.Status.TO_DELETE);
+        return location;
+    }
+
     private void deleteInstance(Instance instance, StoreContext ctx) {
+        Collection<Location> locations = instance.getLocations();
+        HashSet<UIDMap> uidMaps = new HashSet<>();
+        for (Location location : locations) {
+            processLocation(location, uidMaps);
+        }
+        for (UIDMap uidMap : uidMaps)
+            removeOrphaned(uidMap);
+        locations.clear();
         Series series = instance.getSeries();
         Study study = series.getStudy();
         em.remove(instance);
+        em.flush(); // to avoid ERROR: duplicate key value violates unique constraint on re-insert
         boolean sameStudy = ctx.getStudyInstanceUID().equals(study.getStudyInstanceUID());
         boolean sameSeries = sameStudy && ctx.getSeriesInstanceUID().equals(series.getSeriesInstanceUID());
         if (!sameSeries) {
@@ -271,20 +405,7 @@ public class StoreServiceEJB {
         return true;
     }
 
-    private void deleteLocations(List<Location> locations) {
-        for (Location location : locations) {
-            location.setInstance(null);
-            location.setStatus(Location.Status.TO_DELETE);
-        }
-    }
-
-    private List<Location> findLocations(Instance inst) {
-        return em.createNamedQuery(Location.FIND_BY_INSTANCE, Location.class)
-                .setParameter(1, inst)
-                .getResultList();
-    }
-
-    private boolean containsWithEqualDigest(List<Location> locations, byte[] digest) {
+    private boolean containsWithEqualDigest(Collection<Location> locations, byte[] digest) {
         if (digest == null)
             return false;
 
@@ -317,55 +438,225 @@ public class StoreServiceEJB {
         return em.createNamedQuery(SeriesQueryAttributes.DELETE_FOR_SERIES).setParameter(1, series).executeUpdate();
     }
 
-    private Instance createInstance(StoreContext ctx, CodeEntity conceptNameCode, UpdateDBResult result) {
-        Series series = findSeries(ctx);
+    private Instance createInstance(
+            StoreContext ctx, CodeEntity conceptNameCode, UpdateDBResult result, AcceptMissingPatientID acceptMissingPatientID)
+            throws DicomServiceException {
+        Series series = findSeries(ctx, result);
         if (series == null) {
-            Study study = findStudy(ctx);
+            Study study = findStudy(ctx, result);
             if (study == null) {
-                IDWithIssuer pid = IDWithIssuer.pidOf(ctx.getAttributes());
-                PatientMgtContext patMgtCtx = patientService.createPatientMgtContextDICOM(
-                        ctx.getStoreSession().getAssociation());
+                if (!checkStorePermission(ctx))
+                    throw new DicomServiceException(Status.NotAuthorized, "Storage denied");
+
+                acceptMissingPatientID(ctx.getAttributes(), acceptMissingPatientID);
+
+                StoreSession session = ctx.getStoreSession();
+                HttpServletRequest httpRequest = session.getHttpRequest();
+                Association as = session.getAssociation();
+                PatientMgtContext patMgtCtx = as != null ? patientService.createPatientMgtContextWEB(as)
+                        : httpRequest != null
+                        ? patientService.createPatientMgtContextWEB(httpRequest, session.getLocalApplicationEntity())
+                        : patientService.createPatientMgtContextHL7(session.getSocket(), session.getHL7MessageHeader());
                 patMgtCtx.setAttributes(ctx.getAttributes());
                 Patient pat = patientService.findPatient(patMgtCtx);
                 if (pat == null) {
                     pat = patientService.createPatient(patMgtCtx);
                     result.setCreatedPatient(pat);
+                } else {
+                    pat = updatePatient(ctx, pat);
                 }
                 study = createStudy(ctx, pat);
                 result.setCreatedStudy(study);
+            } else {
+                study = updateStudy(ctx, study);
+                updatePatient(ctx, study.getPatient());
             }
-            series = createSeries(ctx, study);
+            series = createSeries(ctx, study, result);
+        } else {
+            series = updateSeries(ctx, series);
+            updateStudy(ctx, series.getStudy());
+            updatePatient(ctx, series.getStudy().getPatient());
         }
-        return createInstance(ctx, series, conceptNameCode);
+        Instance instance = createInstance(ctx, series, conceptNameCode);
+        result.setCreatedInstance(instance);
+        return instance;
     }
 
+    private void acceptMissingPatientID(Attributes attrs, AcceptMissingPatientID acceptMissingPatientID)
+            throws DicomServiceException {
+        if (attrs.getString(Tag.PatientID) == null)
+            switch (acceptMissingPatientID) {
+                case NO:
+                    throw new DicomServiceException(
+                            StoreService.PATIENT_ID_MISSING_IN_OBJECT, "Storage denied as Patient ID missing in object");
+                case CREATE:
+                    idService.newPatientID(attrs);
+                    break;
+                case YES:
+                    break;
+            }
+    }
 
-    private Study findStudy(StoreContext ctx) {
+    private Patient updatePatient(StoreContext ctx, Patient pat) {
+        StoreSession session = ctx.getStoreSession();
+        ArchiveAEExtension arcAE = session.getArchiveAEExtension();
+        ArchiveDeviceExtension arcDev = arcAE.getArchiveDeviceExtension();
+        AttributeFilter filter = arcDev.getAttributeFilter(Entity.Patient);
+        Attributes.UpdatePolicy updatePolicy = filter.getAttributeUpdatePolicy();
+        if (updatePolicy == null)
+            return pat;
+
+        Attributes attrs = pat.getAttributes();
+        UpdateInfo updateInfo = new UpdateInfo(attrs, updatePolicy);
+        if (!attrs.updateSelected(updatePolicy, ctx.getAttributes(), null, filter.getSelection()))
+            return pat;
+
+        updateInfo.log(session, pat, attrs);
+        pat = em.find(Patient.class, pat.getPk());
+        IDWithIssuer idWithIssuer = IDWithIssuer.pidOf(attrs);
+        Issuer issuer = idWithIssuer.getIssuer();
+        if (issuer != null) {
+            PatientID patientID = pat.getPatientID();
+            IssuerEntity issuerEntity = patientID.getIssuer();
+            if (issuerEntity == null)
+                patientID.setIssuer(issuerService.mergeOrCreate(issuer));
+            else
+                issuerEntity.getIssuer().merge(issuer);
+        }
+        pat.setAttributes(attrs, filter, arcDev.getFuzzyStr());
+        return pat;
+    }
+
+    private Study updateStudy(StoreContext ctx, Study study) {
+        StoreSession session = ctx.getStoreSession();
+        ArchiveAEExtension arcAE = session.getArchiveAEExtension();
+        ArchiveDeviceExtension arcDev = arcAE.getArchiveDeviceExtension();
+        AttributeFilter filter = arcDev.getAttributeFilter(Entity.Study);
+        Attributes.UpdatePolicy updatePolicy = filter.getAttributeUpdatePolicy();
+        if (updatePolicy == null)
+            return study;
+
+        Attributes attrs = study.getAttributes();
+        UpdateInfo updateInfo = new UpdateInfo(attrs, updatePolicy);
+        if (!attrs.updateSelected(updatePolicy, ctx.getAttributes(), updateInfo.modified, filter.getSelection()))
+            return study;
+
+        updateInfo.log(session, study, attrs);
+        study = em.find(Study.class, study.getPk());
+        study.setAttributes(attrs, filter, arcDev.getFuzzyStr());
+        study.setIssuerOfAccessionNumber(findOrCreateIssuer(attrs, Tag.IssuerOfAccessionNumberSequence));
+        setCodes(study.getProcedureCodes(), attrs, Tag.ProcedureCodeSequence);
+        return study;
+    }
+
+    private Series updateSeries(StoreContext ctx, Series series) {
+        StoreSession session = ctx.getStoreSession();
+        ArchiveAEExtension arcAE = session.getArchiveAEExtension();
+        ArchiveDeviceExtension arcDev = arcAE.getArchiveDeviceExtension();
+        AttributeFilter filter = arcDev.getAttributeFilter(Entity.Series);
+        Attributes.UpdatePolicy updatePolicy = filter.getAttributeUpdatePolicy();
+        if (updatePolicy == null)
+            return series;
+
+        Attributes attrs = series.getAttributes();
+        UpdateInfo updateInfo = new UpdateInfo(attrs, updatePolicy);
+        if (!attrs.updateSelected(updatePolicy, ctx.getAttributes(), null, filter.getSelection()))
+            return series;
+
+        updateInfo.log(session, series, attrs);
+        series = em.find(Series.class, series.getPk());
+        FuzzyStr fuzzyStr = arcDev.getFuzzyStr();
+        series.setAttributes(attrs, arcDev.getAttributeFilter(Entity.Series), fuzzyStr);
+        series.setInstitutionCode(findOrCreateCode(attrs, Tag.InstitutionCodeSequence));
+        setRequestAttributes(series, attrs, fuzzyStr);
+        return series;
+    }
+
+    private static class UpdateInfo {
+        int[] prevTags;
+        Attributes modified;
+        UpdateInfo(Attributes attrs, Attributes.UpdatePolicy updatePolicy) {
+            if (!LOG.isInfoEnabled())
+                return;
+
+            prevTags = attrs.tags();
+            modified = new Attributes();
+        }
+
+        public void log(StoreSession session, Object entity, Attributes attrs) {
+            if (!LOG.isInfoEnabled())
+                return;
+
+            if (!modified.isEmpty()) {
+                Attributes changedTo = new Attributes(modified.size());
+                changedTo.addSelected(attrs, modified.tags());
+                LOG.info("{}: Modify attributes of {}\nFrom:\n{}To:\n{}", session, entity, modified, changedTo);
+            }
+            Attributes supplemented = new Attributes();
+            supplemented.addNotSelected(attrs, prevTags);
+            if (!supplemented.isEmpty())
+                LOG.info("{}: Supplement attributes of {}:\n{}", session, entity, supplemented);
+        }
+    }
+
+    private Study findStudy(StoreContext ctx, UpdateDBResult result) {
         StoreSession storeSession = ctx.getStoreSession();
         Study study = storeSession.getCachedStudy(ctx.getStudyInstanceUID());
-        if (study != null)
-            return study;
-        try {
-            return em.createNamedQuery(Study.FIND_BY_STUDY_IUID_EAGER, Study.class)
-                    .setParameter(1, ctx.getStudyInstanceUID())
-                    .getSingleResult();
-        } catch (NoResultException e) {
-            return null;
+        if (study == null)
+            try {
+                study = em.createNamedQuery(Study.FIND_BY_STUDY_IUID_EAGER, Study.class)
+                        .setParameter(1, ctx.getStudyInstanceUID())
+                        .getSingleResult();
+                updateStorageIDs(study, storeSession.getArchiveAEExtension().storageID());
+                if (result.getRejectionNote() == null)
+                    updateStudyRejectionState(ctx, study);
+            } catch (NoResultException e) {}
+        return study;
+    }
+
+    private void updateStorageIDs(Study study, String storageID) {
+        String prevStorageIDs = study.getStorageIDs();
+        for (String id : StringUtils.split(prevStorageIDs, '\\'))
+            if (id.equals(storageID))
+                return;
+
+        study.setStorageIDs(prevStorageIDs + '\\' + storageID);
+    }
+
+    private void updateStudyRejectionState(StoreContext ctx, Study study) {
+        switch (study.getRejectionState()) {
+            case COMPLETE:
+                study.setRejectionState(RejectionState.PARTIAL);
+                study.getPatient().incrementNumberOfStudies();
+                setStudyAttributes(ctx, study);
+                break;
+            case EMPTY:
+                study.setRejectionState(RejectionState.NONE);
+                study.getPatient().incrementNumberOfStudies();
+                break;
         }
     }
 
-    private Series findSeries(StoreContext ctx) {
+    private Series findSeries(StoreContext ctx, UpdateDBResult result) {
         StoreSession storeSession = ctx.getStoreSession();
         Series series = storeSession.getCachedSeries(ctx.getStudyInstanceUID(), ctx.getSeriesInstanceUID());
-        if (series != null)
-            return series;
-        try {
-            return em.createNamedQuery(Series.FIND_BY_SERIES_IUID_EAGER, Series.class)
-                    .setParameter(1, ctx.getStudyInstanceUID())
-                    .setParameter(2, ctx.getSeriesInstanceUID())
-                    .getSingleResult();
-        } catch (NoResultException e) {
-            return null;
+        if (series == null)
+            try {
+                series = em.createNamedQuery(Series.FIND_BY_SERIES_IUID_EAGER, Series.class)
+                        .setParameter(1, ctx.getStudyInstanceUID())
+                        .setParameter(2, ctx.getSeriesInstanceUID())
+                        .getSingleResult();
+                if (result.getRejectionNote() == null)
+                    updateSeriesRejectionState(ctx, series);
+            } catch (NoResultException e) {}
+        return series;
+    }
+
+    private void updateSeriesRejectionState(StoreContext ctx, Series series) {
+        if (series.getRejectionState() == RejectionState.COMPLETE) {
+            series.setRejectionState(RejectionState.PARTIAL);
+            setSeriesAttributes(ctx, series);
+            updateStudyRejectionState(ctx, series.getStudy());
         }
     }
 
@@ -384,7 +675,7 @@ public class StoreServiceEJB {
 
     private Instance findInstance(String objectUID) {
         try {
-            return em.createNamedQuery(Instance.FIND_BY_SOP_IUID, Instance.class)
+            return em.createNamedQuery(Instance.FIND_BY_SOP_IUID_EAGER, Instance.class)
                     .setParameter(1, objectUID)
                     .getSingleResult();
         } catch (NoResultException e) {
@@ -394,7 +685,7 @@ public class StoreServiceEJB {
 
     private Instance findInstance(String studyUID, String seriesUID, String objectUID) {
         try {
-            return em.createNamedQuery(Instance.FIND_BY_STUDY_SERIES_SOP_IUID, Instance.class)
+            return em.createNamedQuery(Instance.FIND_BY_STUDY_SERIES_SOP_IUID_EAGER, Instance.class)
                     .setParameter(1, studyUID)
                     .setParameter(2, seriesUID)
                     .setParameter(3, objectUID)
@@ -407,34 +698,133 @@ public class StoreServiceEJB {
     private Study createStudy(StoreContext ctx, Patient patient) {
         StoreSession session = ctx.getStoreSession();
         ArchiveAEExtension arcAE = session.getArchiveAEExtension();
-        ArchiveDeviceExtension arcDev = arcAE.getArchiveDeviceExtension();
-        FuzzyStr fuzzyStr = arcDev.getFuzzyStr();
-        Attributes attrs = ctx.getAttributes();
         Study study = new Study();
+        study.setStorageIDs(arcAE.storageID());
         study.setAccessControlID(arcAE.getStoreAccessControlID());
-        study.setAttributes(attrs, arcDev.getAttributeFilter(Entity.Study), fuzzyStr);
-        study.setIssuerOfAccessionNumber(findOrCreateIssuer(attrs, Tag.IssuerOfAccessionNumberSequence));
-        setCodes(study.getProcedureCodes(), attrs, Tag.ProcedureCodeSequence);
+        study.setRejectionState(RejectionState.NONE);
+        setStudyAttributes(ctx, study);
         study.setPatient(patient);
+        patient.incrementNumberOfStudies();
         em.persist(study);
-        LOG.info("{}: Create {}", ctx.getStoreSession(), study);
+        LOG.info("{}: Create {}", session, study);
         return study;
     }
 
-    private Series createSeries(StoreContext ctx, Study study) {
+    private boolean checkStorePermission(StoreContext ctx) {
+        StoreSession session = ctx.getStoreSession();
+        ArchiveAEExtension arcAE = session.getArchiveAEExtension();
+        String serviceURL = arcAE.storePermissionServiceURL();
+        if (serviceURL == null)
+            return true;
+
+        String urlspec = new AttributesFormat(serviceURL).format(ctx.getAttributes());
+        Boolean result = storePermissionCache.get(urlspec);
+        if (result != null) {
+            LOG.debug("URL already found in cache. " + result);
+            return result;
+        }
+
+        LOG.info("{}: Query Store Permission Service {}", session, urlspec);
+        try {
+            URL url = new URL(urlspec);
+            HttpURLConnection httpConn = (HttpURLConnection) url.openConnection();
+            ByteArrayOutputStream out = new ByteArrayOutputStream(512);
+            try (InputStream in = httpConn.getInputStream()) {
+                StreamUtils.copy(in, out);
+            }
+            int responseCode = httpConn.getResponseCode();
+            Pattern responsePattern = arcAE.storePermissionServiceResponsePattern();
+            result = responsePattern != null
+                    ? responseCode == HttpURLConnection.HTTP_OK
+                        && responsePattern.matcher(new String(out.toByteArray(), charsetOf(httpConn))).matches()
+                    : responseCode == HttpURLConnection.HTTP_OK || responseCode == HttpURLConnection.HTTP_NO_CONTENT;
+            if (responseCode == HttpURLConnection.HTTP_OK)
+                LOG.debug(getLogMessage(out, responseCode));
+            else
+                LOG.info(getLogMessage(out, responseCode));
+        } catch (Exception e) {
+            LOG.warn("{}: Failed to query Store Permission Service {}:\n", session, urlspec, e);
+            result = false;
+        }
+        storePermissionCache.put(urlspec, result);
+        return result;
+    }
+
+    private String getLogMessage(ByteArrayOutputStream out, int responseCode) {
+        return "Store Permission Service Content : " + String.valueOf(out.toByteArray())
+            + "Response Status : " + Integer.toHexString(responseCode);
+    }
+
+    private String charsetOf(HttpURLConnection httpConn) {
+        String contentType = httpConn.getContentType().toUpperCase();
+        int index = contentType.lastIndexOf("CHARSET=");
+        return index >= 0 ? contentType.substring(index + 8) : "UTF-8";
+    }
+
+    private void setStudyAttributes(StoreContext ctx, Study study) {
+        ArchiveAEExtension arcAE = ctx.getStoreSession().getArchiveAEExtension();
+        ArchiveDeviceExtension arcDev = arcAE.getArchiveDeviceExtension();
+        Attributes attrs = ctx.getAttributes();
+        study.setAttributes(attrs, arcDev.getAttributeFilter(Entity.Study), arcDev.getFuzzyStr());
+        study.setIssuerOfAccessionNumber(findOrCreateIssuer(attrs, Tag.IssuerOfAccessionNumberSequence));
+        setCodes(study.getProcedureCodes(), attrs, Tag.ProcedureCodeSequence);
+    }
+
+    private Series createSeries(StoreContext ctx, Study study, UpdateDBResult result) {
+        Series series = new Series();
+        setSeriesAttributes(ctx, series);
+        series.setStudy(study);
+        if (result.getRejectionNote() == null) {
+            markOldStudiesAsIncomplete(ctx, series);
+            applyStudyRetentionPolicy(ctx, series);
+            series.setRejectionState(RejectionState.NONE);
+        } else {
+            series.setRejectionState(RejectionState.COMPLETE);
+        }
+        em.persist(series);
+        LOG.info("{}: Create {}", ctx.getStoreSession(), series);
+        return series;
+    }
+
+    private void markOldStudiesAsIncomplete(StoreContext ctx, Series series) {
+        String studyDateThreshold = ctx.getStoreSession().getArchiveAEExtension().fallbackCMoveSCPStudyOlderThan();
+        if (studyDateThreshold == null)
+            return;
+
+        Study study = series.getStudy();
+        if (study.getStudyDate().compareTo(studyDateThreshold) < 0) {
+            series.setFailedSOPInstanceUIDList("*");
+            study.setFailedSOPInstanceUIDList("*");
+        }
+    }
+
+    private void applyStudyRetentionPolicy(StoreContext ctx, Series series) {
+        StoreSession session = ctx.getStoreSession();
+        ArchiveAEExtension arcAE = session.getArchiveAEExtension();
+        StudyRetentionPolicy retentionPolicy = arcAE.findStudyRetentionPolicy(session.getRemoteHostName(),
+            session.getCallingAET(), session.getCalledAET(), ctx.getAttributes());
+        if (retentionPolicy == null)
+            return;
+
+        Study study = series.getStudy();
+        LocalDate expirationDate = LocalDate.now().plus(retentionPolicy.getRetentionPeriod());
+        LocalDate studyExpirationDate = study.getExpirationDate();
+        if (studyExpirationDate == null || studyExpirationDate.compareTo(expirationDate) < 0)
+            study.setExpirationDate(expirationDate);
+
+        if (retentionPolicy.isExpireSeriesIndividually())
+            series.setExpirationDate(expirationDate);
+    }
+
+    private void setSeriesAttributes(StoreContext ctx, Series series) {
         StoreSession session = ctx.getStoreSession();
         ArchiveDeviceExtension arcDev = session.getArchiveAEExtension().getArchiveDeviceExtension();
         FuzzyStr fuzzyStr = arcDev.getFuzzyStr();
         Attributes attrs = ctx.getAttributes();
-        Series series = new Series();
         series.setAttributes(attrs, arcDev.getAttributeFilter(Entity.Series), fuzzyStr);
         series.setInstitutionCode(findOrCreateCode(attrs, Tag.InstitutionCodeSequence));
         setRequestAttributes(series, attrs, fuzzyStr);
         series.setSourceAET(session.getCallingAET());
-        series.setStudy(study);
-        em.persist(series);
-        LOG.info("{}: Create {}", ctx.getStoreSession(), series);
-        return series;
     }
 
     private Instance createInstance(StoreContext ctx, Series series, CodeEntity conceptNameCode) {
@@ -447,38 +837,90 @@ public class StoreServiceEJB {
         setVerifyingObservers(instance, attrs, fuzzyStr);
         instance.setConceptNameCode(conceptNameCode);
         setContentItems(instance, attrs);
-
-        WriteContext storageContext = ctx.getWriteContext();
-        Storage storage = storageContext.getStorage();
-        StorageDescriptor descriptor = storage.getStorageDescriptor();
-        String[] retrieveAETs = descriptor.getRetrieveAETitles();
-        Availability availability = descriptor.getInstanceAvailability();
-        instance.setRetrieveAETs(
-                retrieveAETs.length > 0
-                        ? retrieveAETs
-                        : new String[] { session.getLocalApplicationEntity().getAETitle() });
-        instance.setAvailability(availability != null ? availability : Availability.ONLINE);
-
+        instance.setRetrieveAETs(ctx.getRetrieveAETs());
+        instance.setAvailability(ctx.getAvailability());
         instance.setSeries(series);
         em.persist(instance);
         LOG.info("{}: Create {}", ctx.getStoreSession(), instance);
         return instance;
     }
 
-    private Location createLocation(StoreContext ctx, Instance instance) {
-        WriteContext writeContext = ctx.getWriteContext();
+    private void createLocations(StoreContext ctx, Instance instance, UpdateDBResult result) {
+        createLocation(ctx, instance, result, Location.ObjectType.DICOM_FILE);
+        createLocation(ctx, instance, result, Location.ObjectType.METADATA);
+    }
+
+    private void createLocation(StoreContext ctx, Instance instance, UpdateDBResult result,
+                                Location.ObjectType objectType) {
+        WriteContext writeContext = ctx.getWriteContext(objectType);
+        if (writeContext == null)
+            return;
+
         Storage storage = writeContext.getStorage();
         StorageDescriptor descriptor = storage.getStorageDescriptor();
         Location location = new Location.Builder()
                 .storageID(descriptor.getStorageID())
                 .storagePath(writeContext.getStoragePath())
-                .transferSyntaxUID(ctx.getStoreTranferSyntax())
+                .transferSyntaxUID(objectType == Location.ObjectType.DICOM_FILE ? ctx.getStoreTranferSyntax() : null)
+                .objectType(objectType)
                 .size(writeContext.getSize())
                 .digest(writeContext.getDigest())
                 .build();
         location.setInstance(instance);
         em.persist(location);
-        return location;
+        result.getLocations().add(location);
+    }
+
+    private void copyLocations(StoreContext ctx, Instance instance, UpdateDBResult result) {
+        StoreSession session = ctx.getStoreSession();
+        Map<Long, UIDMap> uidMapCache = session.getUIDMapCache();
+        Map<String, String> uidMap = session.getUIDMap();
+        for (Location prevLocation : ctx.getLocations())
+            result.getLocations().add(copyLocation(prevLocation, instance, uidMap, uidMapCache));
+    }
+
+    private Location copyLocation(
+            Location prevLocation, Instance instance, Map<String, String> uidMap, Map<Long, UIDMap> uidMapCache) {
+        if (prevLocation.getMultiReference() == null) {
+            prevLocation = em.find(Location.class, prevLocation.getPk());
+            prevLocation.setMultiReference(idService.newLocationMultiReference());
+        }
+        Location newLocation = new Location(prevLocation);
+        newLocation.setUidMap(createUIDMap(uidMap, prevLocation.getUidMap(), uidMapCache));
+        newLocation.setInstance(instance);
+        em.persist(newLocation);
+        return newLocation;
+    }
+
+    private UIDMap createUIDMap(Map<String, String> uidMap, UIDMap prevUIDMap, Map<Long, UIDMap> uidMapCache) {
+        Long key = prevUIDMap != null ? prevUIDMap.getPk() : null;
+        UIDMap result = uidMapCache.get(key);
+        if (result != null)
+            return result;
+
+        uidMap = foldUIDMaps(uidMap, prevUIDMap);
+        UIDMap newUIDMap = new UIDMap();
+        newUIDMap.setUIDMap(uidMap);
+        em.persist(newUIDMap);
+        LOG.debug("Persisted uid map is " + newUIDMap + "..." + newUIDMap.toString());
+        em.flush();
+        uidMapCache.put(key, newUIDMap);
+        return newUIDMap;
+    }
+
+    private Map<String, String> foldUIDMaps(Map<String, String> uidMap, UIDMap prevUIDMap) {
+        if (prevUIDMap == null)
+            return uidMap;
+
+        Map<String, String> prevUidMap = prevUIDMap.getUIDMap();
+        Map<String, String> result = new HashMap<>(uidMap);
+        for (Map.Entry<String, String> entry : prevUidMap.entrySet()) {
+            String key = entry.getKey();
+            String prevValue = entry.getValue();
+            String value = uidMap.get(prevValue);
+            result.put(key, value != null ? value : prevValue);
+        }
+        return result;
     }
 
     private void setRequestAttributes(Series series, Attributes attrs, FuzzyStr fuzzyStr) {
@@ -530,14 +972,14 @@ public class StoreServiceEJB {
 
     private IssuerEntity findOrCreateIssuer(Attributes attrs, int tag) {
         Attributes item = attrs.getNestedDataset(tag);
-        return item != null ? issuerService.findOrCreate(new Issuer(item)) : null;
+        return item != null ? issuerService.mergeOrCreate(new Issuer(item)) : null;
     }
 
     private CodeEntity findOrCreateCode(Attributes attrs, int seqTag) {
         Attributes item = attrs.getNestedDataset(seqTag);
         if (item != null)
             try {
-                return codeService.findOrCreate(new Code(item));
+                return codeCache.findOrCreate(new Code(item));
             } catch (Exception e) {
                 LOG.info("Illegal code item in Sequence {}:\n{}", TagUtils.toString(seqTag), item);
             }
@@ -550,7 +992,7 @@ public class StoreServiceEJB {
         if (seq != null)
             for (Attributes item : seq) {
                 try {
-                    codes.add(codeService.findOrCreate(new Code(item)));
+                    codes.add(codeCache.findOrCreate(new Code(item)));
                 } catch (Exception e) {
                     LOG.info("Illegal code item in Sequence {}:\n{}", TagUtils.toString(seqTag), item);
                 }
@@ -563,25 +1005,29 @@ public class StoreServiceEJB {
             return;
 
         List<Patient> patients = patientService.findPatients(pid);
-        switch (patients.size()) {
-            case 1:
-                return;
-            case 2:
-                break;
-            default:
-                LOG.warn("{}: Multiple({}) Patients with ID {}", ctx.getStoreSession(), patients.size(), pid);
-                return;
+        if (patients.size() == 1)
+            return;
+
+        if (patients.isEmpty()) {
+            LOG.warn("{}: Failed to find created {}", ctx.getStoreSession(), result.getCreatedPatient());
+            return;
+        }
+        Patient createdPatient = null;
+        Patient otherPatient = null;
+        for (Patient patient : patients) {
+            if (createdPatient == null && patient.getPk() == result.getCreatedPatient().getPk())
+                createdPatient = patient;
+            else if (otherPatient == null || otherPatient.getPk() > patient.getPk())
+                otherPatient = patient;
         }
 
-        int index = patients.get(0).getPk() == result.getCreatedPatient().getPk() ? 0 : 1;
-        Patient createdPatient = patients.get(index);
-        Patient otherPatient = patients.get(1-index);
         if (otherPatient.getMergedWith() != null) {
             LOG.warn("{}: Keep duplicate created {} because existing {} is circular merged",
                     ctx.getStoreSession(), createdPatient, otherPatient, pid);
             return;
         }
         LOG.info("{}: Delete duplicate created {}", ctx.getStoreSession(), createdPatient);
+        otherPatient.incrementNumberOfStudies();
         em.merge(result.getCreatedStudy()).setPatient(otherPatient);
         em.remove(createdPatient);
         result.setCreatedPatient(null);

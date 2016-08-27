@@ -49,39 +49,49 @@ import java.util.Date;
  * @author Damien Evans <damien.daddy@gmail.com>
  * @author Justin Falk <jfalkmu@gmail.com>
  * @author Gunter Zeilinger <gunterze@gmail.com>
+ * @author Vrinda Nayak <vrinda.nayak@j4care.com>
  */
 @Entity
-@Table(name = "location", indexes = @Index(columnList = "storage_id,status"))
+@Table(name = "location", indexes = {
+    @Index(columnList = "storage_id,status"),
+    @Index(columnList = "multi_ref")
+})
 @NamedQueries({
         @NamedQuery(name = Location.FIND_BY_STORAGE_ID_AND_STATUS,
                 query = "select l from Location l where l.storageID=?1 and l.status=?2"),
-        @NamedQuery(name = Location.FIND_BY_INSTANCE,
-                query = "select l from Location l where l.instance=?1"),
         @NamedQuery(name = Location.FIND_BY_STUDY_PK,
                 query = "select l from Location l where l.instance.series.study.pk=?1"),
-        @NamedQuery(name = Location.FIND_BY_REJECTION_OR_CONCEPT_NAME_CODE,
+        @NamedQuery(name = Location.FIND_BY_REJECTION_CODE,
                 query = "select l from Location l join l.instance i " +
-                        "where i.rejectionNoteCode=?1 or i.conceptNameCode=?1"),
+                        "where i.rejectionNoteCode=?1"),
+        @NamedQuery(name = Location.FIND_BY_CONCEPT_NAME_CODE,
+                query = "select l from Location l join l.instance i " +
+                        "where i.conceptNameCode=?1"),
         @NamedQuery(name = Location.FIND_BY_REJECTION_CODE_BEFORE,
                 query = "select l from Location l join l.instance i " +
                         "where i.rejectionNoteCode=?1 and i.updatedTime<?2"),
         @NamedQuery(name = Location.FIND_BY_CONCEPT_NAME_CODE_BEFORE,
                 query = "select l from Location l join l.instance i " +
                         "where i.conceptNameCode=?1 and i.updatedTime<?2"),
-        @NamedQuery(name = Location.FIND_STORAGE_IDS_BY_STUDY_PK,
-                query = "select distinct l.storageID from Location l where l.instance.series.study.pk=?1")
+        @NamedQuery(name = Location.COUNT_BY_MULTI_REF,
+                query = "select count(l) from Location l where l.multiReference=?1"),
+        @NamedQuery(name = Location.COUNT_BY_UIDMAP,
+                query = "select count(l) from Location l where l.uidMap=?1")
 })
 public class Location {
 
     public static final String FIND_BY_STORAGE_ID_AND_STATUS = "Location.FindByStorageIDAndStatus";
-    public static final String FIND_BY_INSTANCE = "Location.FindByInstance";
     public static final String FIND_BY_STUDY_PK = "Location.FindByStudyPk";
-    public static final String FIND_BY_REJECTION_OR_CONCEPT_NAME_CODE = "Location.FindByRejectionOrConceptNameCode";
+    public static final String FIND_BY_REJECTION_CODE = "Location.FindByRejectionCode";
+    public static final String FIND_BY_CONCEPT_NAME_CODE = "Location.FindByConceptNameCode";
     public static final String FIND_BY_REJECTION_CODE_BEFORE = "Location.FindByRejectionCodeBefore";
     public static final String FIND_BY_CONCEPT_NAME_CODE_BEFORE = "Location.FindByConceptNameCodeBefore";
-    public static final String FIND_STORAGE_IDS_BY_STUDY_PK = "Location.FindStorageIDsByStudyPk";
+    public static final String COUNT_BY_MULTI_REF = "Location.CountByMultiRef";
+    public static final String COUNT_BY_UIDMAP = "Location.CountByUIDMap";
 
     public enum Status { OK, TO_DELETE, FAILED_TO_DELETE }
+
+    public enum ObjectType { DICOM_FILE, METADATA }
 
     @Id
     @GeneratedValue(strategy=GenerationType.IDENTITY)
@@ -97,7 +107,7 @@ public class Location {
     @Column(name = "storage_id", updatable = false)
     private String storageID;
 
-    @Basic(optional = true)
+    @Basic(optional = false)
     @Column(name = "storage_path", updatable = false)
     private String storagePath;
 
@@ -105,7 +115,7 @@ public class Location {
     @Column(name = "tsuid", updatable = false)
     private String transferSyntaxUID;
 
-    @Basic(optional = true)
+    @Basic(optional = false)
     @Column(name = "object_size", updatable = false)
     private long size;
 
@@ -117,6 +127,18 @@ public class Location {
     @Enumerated(EnumType.ORDINAL)
     @Column(name = "status", updatable = true)
     private Status status;
+
+    @Basic(optional = false)
+    @Enumerated(EnumType.ORDINAL)
+    @Column(name = "object_type", updatable = false)
+    private ObjectType objectType;
+
+    @Column(name = "multi_ref", updatable = true)
+    private Integer multiReference;
+
+    @ManyToOne
+    @JoinColumn(name = "uidmap_fk", updatable = false)
+    private UIDMap uidMap;
 
     @ManyToOne
     @JoinColumn(name = "instance_fk", updatable = true)
@@ -130,6 +152,7 @@ public class Location {
         private long size;
         private String digest;
         private Status status = Status.OK;
+        private ObjectType objectType = ObjectType.DICOM_FILE;
 
         public Builder pk(long pk) {
             this.pk = pk;
@@ -170,6 +193,11 @@ public class Location {
             return this;
         }
 
+        public Builder objectType(ObjectType objectType) {
+            this.objectType = objectType;
+            return this;
+        }
+
         public Location build() {
             return new Location(this);
         }
@@ -185,6 +213,19 @@ public class Location {
         size = builder.size;
         digest = builder.digest;
         status = builder.status;
+        objectType = builder.objectType;
+    }
+
+    public Location(Location other) {
+        this.createdTime = other.createdTime;
+        this.storageID = other.storageID;
+        this.storagePath = other.storagePath;
+        this.transferSyntaxUID = other.transferSyntaxUID;
+        this.size = other.size;
+        this.digest = other.digest;
+        this.status = other.status;
+        this.objectType = other.objectType;
+        this.multiReference = other.multiReference;
     }
 
     @PrePersist
@@ -228,6 +269,26 @@ public class Location {
         this.status = status;
     }
 
+    public ObjectType getObjectType() {
+        return objectType;
+    }
+
+    public Integer getMultiReference() {
+        return multiReference;
+    }
+
+    public void setMultiReference(Integer multiReference) {
+        this.multiReference = multiReference;
+    }
+
+    public UIDMap getUidMap() {
+        return uidMap;
+    }
+
+    public void setUidMap(UIDMap uidMap) {
+        this.uidMap = uidMap;
+    }
+
     public Instance getInstance() {
         return instance;
     }
@@ -244,6 +305,7 @@ public class Location {
                 + ", tsuid=" + transferSyntaxUID
                 + ", size=" + size
                 + ", status=" + status
+                + ", objectType=" + objectType
                 + "]";
     }
 

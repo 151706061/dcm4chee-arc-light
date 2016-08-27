@@ -40,21 +40,34 @@
 
 package org.dcm4chee.arc.delete.impl;
 
+import org.dcm4che3.audit.AuditMessages;
 import org.dcm4che3.data.Code;
+import org.dcm4che3.data.IDWithIssuer;
+import org.dcm4che3.net.ApplicationEntity;
+import org.dcm4che3.net.Device;
 import org.dcm4chee.arc.code.CodeCache;
+import org.dcm4chee.arc.conf.ArchiveDeviceExtension;
+import org.dcm4chee.arc.conf.RejectionNote;
+import org.dcm4chee.arc.delete.StudyNotFoundException;
 import org.dcm4chee.arc.delete.StudyDeleteContext;
 import org.dcm4chee.arc.entity.*;
+import org.dcm4chee.arc.patient.PatientMgtContext;
+import org.dcm4chee.arc.patient.PatientService;
+import org.dcm4chee.arc.store.org.dcm4chee.archive.store.impl.StoreServiceEJB;
 
 import javax.ejb.Stateless;
 import javax.inject.Inject;
 import javax.persistence.EntityManager;
 import javax.persistence.PersistenceContext;
+import javax.persistence.TypedQuery;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 
 /**
  * @author Gunter Zeilinger <gunterze@gmail.com>
+ * @author Vrinda Nayak <vrinda.nayak@j4care.com>
  * @since Oct 2015
  */
 @Stateless
@@ -64,7 +77,16 @@ public class DeletionServiceEJB {
     private EntityManager em;
 
     @Inject
-    private CodeCache codeCahe;
+    private CodeCache codeCache;
+
+    @Inject
+    private Device device;
+
+    @Inject
+    private PatientService patientService;
+
+    @Inject
+    private StoreServiceEJB storeEjb;
 
     public List<Location> findLocationsToDelete(String storageID, int limit) {
         return em.createNamedQuery(Location.FIND_BY_STORAGE_ID_AND_STATUS, Location.class)
@@ -90,57 +112,52 @@ public class DeletionServiceEJB {
         em.remove(em.merge(location));
     }
 
-    public boolean removeStudyOnStorage(StudyDeleteContext ctx, boolean deletePatient) {
+    public boolean removeStudyOnStorage(StudyDeleteContext ctx) {
         Long studyPk = ctx.getStudyPk();
-        List<String> storageIDs = em.createNamedQuery(Location.FIND_STORAGE_IDS_BY_STUDY_PK, String.class)
-                .setParameter(1, studyPk)
-                .getResultList();
-        if (storageIDs.size() > 1) {
-            Study study = em.find(Study.class, studyPk);
-            study.setScatteredStorage(true);
-            ctx.setStudy(study);
-            ctx.setPatient(study.getPatient());
-            ctx.setException(new Exception("objects scattered over multiple Storages" + storageIDs));
-            return false;
-        }
         List<Location> locations = em.createNamedQuery(Location.FIND_BY_STUDY_PK, Location.class)
-                .setParameter(1, studyPk)
-                .getResultList();
-        deleteInstances(locations, ctx, deletePatient);
+                                    .setParameter(1, studyPk)
+                                    .getResultList();
+        deleteInstances(locations, ctx);
         return true;
-    }
-
-    public int deleteRejectedInstancesAndRejectionNotes(Code rejectionCode, int limit) {
-        CodeEntity codeEntity = codeCahe.findOrCreate(rejectionCode);
-        List<Location> locations = em.createNamedQuery(Location.FIND_BY_REJECTION_OR_CONCEPT_NAME_CODE, Location.class)
-                .setParameter(1, codeEntity)
-                .setMaxResults(limit)
-                .getResultList();
-        return deleteInstances(locations, null, false);
     }
 
     public int deleteRejectedInstancesOrRejectionNotesBefore(
             String queryName, Code rejectionCode, Date before, int limit) {
-        CodeEntity codeEntity = codeCahe.findOrCreate(rejectionCode);
-        List<Location> locations = em.createNamedQuery(queryName, Location.class)
-                .setParameter(1, codeEntity)
-                .setParameter(2, before)
-                .setMaxResults(limit)
-                .getResultList();
-        return deleteInstances(locations, null, false);
+        CodeEntity codeEntity = codeCache.findOrCreate(rejectionCode);
+        TypedQuery<Location> query = em.createNamedQuery(queryName, Location.class).setParameter(1, codeEntity);
+        if (before != null)
+            query.setParameter(2, before);
+
+        List<Location> locations = query.setMaxResults(limit).getResultList();
+        return deleteInstances(locations, null);
     }
 
-    private int deleteInstances(List<Location> locations, StudyDeleteContext studyDeleteContext, boolean deletePatient) {
+    public void deleteEmptyStudy(StudyDeleteContext ctx) {
+        Study study = ctx.getStudy();
+        em.remove(em.contains(study) ? study : em.merge(study));
+    }
+
+    public void deleteMWLItemsOfPatient(PatientMgtContext ctx) {
+        List<MWLItem> mwlItems = em.createNamedQuery(MWLItem.FIND_BY_PATIENT, MWLItem.class)
+                .setParameter(1, ctx.getPatient()).getResultList();
+        for (MWLItem mwlItem : mwlItems)
+            em.remove(mwlItem);
+    }
+
+    private int deleteInstances(List<Location> locations, StudyDeleteContext studyDeleteContext) {
+        boolean deletePatient = studyDeleteContext != null && studyDeleteContext.isDeletePatientOnDeleteLastStudy();
         if (locations.isEmpty())
             return 0;
 
         HashMap<Long,Instance> insts = new HashMap<>();
+        HashSet<UIDMap> uidMaps = new HashSet<>();
         for (Location location : locations) {
             Instance inst = location.getInstance();
             insts.put(inst.getPk(), inst);
-            location.setInstance(null);
-            location.setStatus(Location.Status.TO_DELETE);
+            storeEjb.processLocation(location, uidMaps);
         }
+        for (UIDMap uidMap : uidMaps)
+            storeEjb.removeOrphaned(uidMap);
         HashMap<Long,Series> series = new HashMap<>();
         for (Instance inst : insts.values()) {
             Series ser = inst.getSeries();
@@ -167,6 +184,8 @@ public class DeletionServiceEJB {
                 em.remove(ser);
             } else {
                 studies.put(study.getPk(), null);
+                if (ser.getRejectionState() == RejectionState.PARTIAL && !hasRejectedInstances(ser))
+                    ser.setRejectionState(RejectionState.NONE);
             }
         }
         HashMap<Long,Patient> patients = new HashMap<>();
@@ -181,27 +200,35 @@ public class DeletionServiceEJB {
                     patients.put(patient.getPk(), patient);
             } else {
                 patients.put(patient.getPk(), null);
+                if (study.getRejectionState() == RejectionState.PARTIAL
+                        && !hasSeriesWithOtherRejectionState(study, RejectionState.NONE))
+                    study.setRejectionState(RejectionState.NONE);
             }
         }
         for (Patient patient : patients.values()) {
-            if (patient != null && countStudiesOfPatient(patient) == 0)
-                deletePatient(patient);
+            if (patient != null && countStudiesOfPatient(patient) == 0) {
+                PatientMgtContext ctx = patientService.createPatientMgtContextScheduler(getApplicationEntity());
+                ctx.setPatient(patient);
+                ctx.setEventActionCode(AuditMessages.EventActionCode.Delete);
+                ctx.setAttributes(patient.getAttributes());
+                ctx.setPatientID(IDWithIssuer.pidOf(patient.getAttributes()));
+                patientService.deletePatientIfHasNoMergedWith(ctx);
+            }
         }
         return insts.size();
     }
 
-    private void deletePatient(Patient patient) {
-        if (em.createNamedQuery(Patient.COUNT_BY_MERGED_WITH, Long.class)
-                .setParameter(1, patient)
-                .getSingleResult() > 0) {
-             return;
-        }
-        List<MPPS> mppsList = em.createNamedQuery(MPPS.FIND_BY_PATIENT, MPPS.class)
-                .setParameter(1, patient)
-                .getResultList();
-        for (MPPS mpps : mppsList)
-            em.remove(mpps);
-        em.remove(patient);
+    private boolean hasRejectedInstances(Series series) {
+        return em.createNamedQuery(Instance.COUNT_REJECTED_INSTANCES_OF_SERIES, Long.class)
+                .setParameter(1, series)
+                .getSingleResult() > 0;
+    }
+
+    private boolean hasSeriesWithOtherRejectionState(Study study, RejectionState rejectionState) {
+        return em.createNamedQuery(Series.COUNT_SERIES_OF_STUDY_WITH_OTHER_REJECTION_STATE, Long.class)
+                .setParameter(1, study)
+                .setParameter(2, rejectionState)
+                .getSingleResult() > 0;
     }
 
     private long countStudiesOfPatient(Patient patient) {
@@ -226,4 +253,15 @@ public class DeletionServiceEJB {
     private int deleteSeriesQueryAttributes(Series series) {
         return em.createNamedQuery(SeriesQueryAttributes.DELETE_FOR_SERIES).setParameter(1, series).executeUpdate();
     }
+
+    private ApplicationEntity getApplicationEntity() {
+        String[] aets = device.getApplicationAETitles().toArray(new String[device.getApplicationAETitles().size()]);
+        StringBuilder b = new StringBuilder();
+        b.append(aets[0]);
+        for (int i = 1; i < aets.length; i++)
+            b.append(';').append(aets[i]);
+        return device.getApplicationEntity(b.toString(), true);
+    }
+
+
 }

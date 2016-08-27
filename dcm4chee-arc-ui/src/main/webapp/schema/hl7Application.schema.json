@@ -9,7 +9,7 @@
   "properties": {
     "hl7ApplicationName": {
       "title": "HL7 Application name",
-      "description": "HL7 Application and Facility name (Application^Facility)",
+      "description": "HL7 Application and Facility name (Application|Facility)",
       "type": "string"
     },
     "dicomNetworkConnectionReference": {
@@ -47,6 +47,8 @@
       "type": "boolean"
     },
     "dcmArchiveHL7Application": {
+      "title": "Archive HL7 Application",
+      "description": "DICOM Archive HL7 Application related information",
       "$ref": "archiveHL7Application.schema.json"
     }
   }

@@ -148,6 +148,7 @@ public class MPPS {
     public String toString() {
         return "MPPS[pk=" + pk
                 + ", uid=" + sopInstanceUID
+                + ", studyInstanceUID=" + studyInstanceUID
                 + ", status=" + status
                 + "]";
     }
@@ -174,6 +175,26 @@ public class MPPS {
 
     public void setStatus(Status status) {
         this.status = status;
+    }
+
+    public String getSopInstanceUID() {
+        return sopInstanceUID;
+    }
+
+    public String getPerformedProcedureStepStartDate() {
+        return performedProcedureStepStartDate;
+    }
+
+    public String getPerformedProcedureStepStartTime() {
+        return performedProcedureStepStartTime;
+    }
+
+    public String getStudyInstanceUID() {
+        return studyInstanceUID;
+    }
+
+    public String getAccessionNumber() {
+        return accessionNumber;
     }
 
     public void setSopInstanceUID(String sopInstanceUID) {

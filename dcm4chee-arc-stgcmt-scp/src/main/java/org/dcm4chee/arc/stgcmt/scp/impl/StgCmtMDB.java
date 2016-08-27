@@ -49,7 +49,7 @@ import java.util.List;
 @MessageDriven(activationConfig = {
         @ActivationConfigProperty(propertyName = "destinationType", propertyValue = "javax.jms.Queue"),
         @ActivationConfigProperty(propertyName = "destination", propertyValue = StgCmtSCP.JNDI_NAME),
-        @ActivationConfigProperty(propertyName = "maxSession", propertyValue = "1")
+        @ActivationConfigProperty(propertyName = "maxSession", propertyValue = "5")
 })
 @TransactionAttribute(TransactionAttributeType.NOT_SUPPORTED)
 public class StgCmtMDB implements MessageListener {
@@ -102,7 +102,7 @@ public class StgCmtMDB implements MessageListener {
                     msg.getStringProperty("RemoteAET"),
                     eventInfo);
             queueManager.onProcessingSuccessful(msgID, outcome);
-        } catch (Exception e) {
+        } catch (Throwable e) {
             LOG.warn("Failed to process {}", msg, e);
             queueManager.onProcessingFailed(msgID, e);
         }
@@ -216,7 +216,7 @@ public class StgCmtMDB implements MessageListener {
         Storage storage = storageMap.get(storageID);
         if (storage == null) {
             storage = storageFactory.getStorage(
-                    device.getDeviceExtension(ArchiveDeviceExtension.class).getStorageDescriptor(storageID));
+                    device.getDeviceExtension(ArchiveDeviceExtension.class).getStorageDescriptorNotNull(storageID));
             storageMap.put(storageID, storage);
         }
         return storage;

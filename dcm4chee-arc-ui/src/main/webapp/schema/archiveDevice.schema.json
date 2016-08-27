@@ -10,12 +10,25 @@
   "properties": {
     "dcmFuzzyAlgorithmClass": {
       "title": "Fuzzy Algorithm Class",
-      "description": "Specifies Fuzzy Algorithm Implementation Class: 'org.dcm4che.soundex.Soundex', 'org.dcm4che.soundex.ESoundex', 'org.dcm4che.soundex.ESoundex9', 'org.dcm4che.soundex.Metaphone', 'org.dcm4che.soundex.KPhonetik', 'org.dcm4che.soundex.Phonem",
-      "type": "string"
+      "description": "Specifies Fuzzy Algorithm Implementation Class: 'org.dcm4che3.soundex.Soundex', 'org.dcm4che3.soundex.ESoundex', 'org.dcm4che3.soundex.ESoundex9', 'org.dcm4che3.soundex.Metaphone', 'org.dcm4che3.soundex.KPhonetik', 'org.dcm4che3.soundex.Phonem",
+      "type": "string",
+      "enum":[
+      "org.dcm4che3.soundex.Soundex",
+      "org.dcm4che3.soundex.ESoundex",
+      "org.dcm4che3.soundex.ESoundex9",
+      "org.dcm4che3.soundex.Metaphone",
+      "org.dcm4che3.soundex.KPhonetik",
+      "org.dcm4che3.soundex.Phonem"
+      ]
     },
     "dcmStorageID": {
       "title": "Storage ID",
       "description": "Storage ID",
+      "type": "string"
+    },
+    "dcmMetadataStorageID": {
+      "title": "Metadata Storage ID",
+      "description": "ID of Storage on which Metadata is stored in JSON format - additionally to the complete DICOM composite object. If absent, metadata is not stored additionally",
       "type": "string"
     },
     "dcmQueryRetrieveViewID": {
@@ -35,15 +48,38 @@
         "SAME_SOURCE_AND_SERIES"
       ]
     },
+    "dcmAcceptMissingPatientID": {
+      "title": "Accept Missing Patient ID",
+      "description": "Indicates if objects without Patient IDs shall be accepted and if a Patient ID shall be created. Enumerated values: YES, NO, CREATE. If absent, CREATE will be applied.",
+      "type": "string",
+      "enum": [
+        "YES",
+        "NO",
+        "CREATE"
+      ]
+    },
     "dcmBulkDataSpoolDirectory": {
       "title": "Bulk Data Spool Directory",
       "description": "Path to Bulk Data Spool Directory",
       "type": "string"
     },
-    "dcmQueryMatchUnknown": {
-      "title": "Query Match Unknown",
-      "description": "Indicates if missing Attributes or zero-length Attribute values in stored entities shall considered unknown and all matching against it shall be considered a successful match; enabled if absent",
-      "type": "boolean"
+    "dcmHideSPSWithStatusFromMWL": {
+      "title": "Hide SPS with Status",
+      "description": "Scheduled Procedure Step Status codes of MWL items which shall not be returned by the MWL SCP",
+      "type": "array",
+      "items" : {
+        "type": "string",
+        "enum": [
+          "SCHEDULED",
+          "ARRIVED",
+          "READY",
+          "STARTED",
+          "DEPARTED",
+          "CANCELLED",
+          "DISCONTINUED",
+          "COMPLETED"
+        ]
+      }
     },
     "dcmPersonNameComponentOrderInsensitiveMatching": {
       "title": "Person Name Component Order Insensitive Matching",
@@ -88,6 +124,39 @@
       "type": "array",
       "items" : { "type": "string" }
     },
+    "dcmIanDestination": {
+      "title": "Ian Destination",
+      "description": "Destination to send IAN N-CREATE RQ",
+      "type": "array",
+      "items" : { "type": "string" }
+    },
+    "dcmIanDelay": {
+      "title": "IAN Delay",
+      "description": "Delay in ISO-8601 duration format PnDTnHnMn.nS after which an IAN for a received study is sent to configured IAN destinations. If absent, IANs are triggered by received MPPS",
+      "type": "string"
+    },
+    "dcmIanTimeout": {
+      "title": "IAN Timeout",
+      "description": "Timeout in ISO-8601 duration format PnDTnHnMn.nS for waiting on receive of instances referenced in MPPS; check for completeness forever if absent",
+      "type": "string"
+    },
+    "dcmIanOnTimeout": {
+      "title": "IAN On Timeout",
+      "description": "Specifies if the IAN is sent if the timeout for waiting on receive of instances referenced is exceeded; just stop check for completeness on timeout if absent",
+      "type": "boolean"
+    },
+    "dcmIanTaskPollingInterval": {
+      "title": "IAN Task Polling Interval",
+      "description": "Polling Interval for IAN Tasks in ISO-8601 duration format PnDTnHnMn.nS. IAN disabled, if absent",
+      "type": "string"
+    },
+    "dcmIanTaskFetchSize": {
+      "title": "IAN Task Fetch Size",
+      "description": "Maximal number of IAN Tasks scheduled in one transaction; 100 if absent",
+      "type": "integer",
+      "minimum": 0,
+      "exclusiveMinimum": true
+    },
     "dcmFallbackCMoveSCP": {
       "title": "Fallback C-Move SCP",
       "description": "AE Title of external C-MOVE SCP to forward C-MOVE RQs if the requested Entities are not managed by this archive",
@@ -98,19 +167,9 @@
       "description": "AE Title of local C-STORE-SCP to be set as Move Destination in C-MOVE RQs forwarded to the external C-MOVE SCP specified by dcmFallbackCMoveSCP",
       "type": "string"
     },
-    "dcmFallbackCMoveSCPLevel": {
-      "title": "Fallback C-Move SCP Level",
-      "description": "Retrieve Level in C-MOVE RQs forwarded to the external C-MOVE SCP specified by dcmFallbackCMoveSCP. Enumerated values: STUDY, SERIES. Use original Retrieve Level if absent",
-      "type": "string",
-      "enum": [
-        "STUDY",
-        "SERIES",
-        "IMAGE"
-      ]
-    },
     "dcmFallbackCMoveSCPRetries": {
       "title": "Fallback C-Move SCP Retries",
-      "description": "Maximal number of retries to retrieve not available objects from C-MOVE SCP configured by dcmFallbackCMoveSCP. Only effective with dcmFallbackCMoveSCPLevel=STUDY. -1 = forever. 0 if absent",
+      "description": "Maximal number of retries to retrieve not available objects from C-MOVE SCP configured by dcmFallbackCMoveSCP. -1 = forever. 0 if absent",
       "type": "integer"
     },
     "dcmAltCMoveSCP": {
@@ -127,7 +186,8 @@
       "title": "Export Task Fetch Size",
       "description": "Maximal number of Export Tasks scheduled in one transaction; 5 if absent",
       "type": "integer",
-      "minimum": 5
+      "minimum": 0,
+      "exclusiveMinimum": true
     },
     "dcmPurgeStoragePollingInterval": {
       "title": "Purge Storage Polling Interval",
@@ -138,13 +198,15 @@
       "title": "Purge Storage Fetch Size",
       "description": "Maximal number of objects to delete in one task; 100 if absent",
       "type": "integer",
-      "minimum": 100
+      "minimum": 0,
+      "exclusiveMinimum": true
     },
     "dcmDeleteStudyBatchSize": {
       "title": "Delete Study Batch Size",
       "description": "number of studies to delete from the Storage System, if the usable space fall below configured Usable Space, before checking the usable space again; 10 if absent",
       "type": "integer",
-      "minimum": 10
+      "minimum": 0,
+      "exclusiveMinimum": true
     },
     "dcmDeletePatientOnDeleteLastStudy": {
       "title": "Delete Patient On Delete Last Study",
@@ -160,12 +222,30 @@
       "title": "Delete Rejected Fetch Size",
       "description": "Maximal number of rejected instances to delete from the DB in one task; 100 if absent",
       "type": "integer",
-      "minimum": 100
+      "minimum": 0,
+      "exclusiveMinimum": true
     },
     "dcmMaxAccessTimeStaleness": {
       "title": "Maximum Access Time Staleness",
       "description": "Maximal staleness of recorded study accession time in ISO-8601 duration format PnDTnHnMn.nS. update of the access time disabled, if absent.",
       "type": "string"
+    },
+    "dcmAECacheStaleTimeout": {
+      "title": "AE Cache Stale Timeout",
+      "description": "Maximal staleness of cached AE in ISO-8601 duration format PnDTnHnMn.nS. If absent, cached AE entries will not be refetched from LDAP.",
+      "type": "string"
+    },
+    "dcmLeadingCFindSCPQueryCacheStaleTimeout": {
+      "title": "Leading C-Find SCP Query Cache Stale Timeout",
+      "description": "Maximal staleness of cached Patient and Study attributes fetched from leading C-Find SCP in ISO-8601 duration format PnDTnHnMn.nS. If absent, cache Study attributes are only removed on reaching the maximal cache size.",
+      "type": "string"
+    },
+    "dcmLeadingCFindSCPQueryCacheSize": {
+      "title": "Leading C-Find SCP Query Cache Size",
+      "description": "Maximum number of cached Patient and Study attributes fetched from leading C-Find SCP; 10 if absent",
+      "type": "integer",
+      "minimum": 0,
+      "exclusiveMinimum": true
     },
     "dcmAuditSpoolDirectory": {
       "title": "Audit Spool Directory",
@@ -182,9 +262,34 @@
       "description": "Audit Message Aggregation Duration in ISO-8601 duration format PnDTnHnMn.nS. Audit Message aggregation disabled, if absent.",
       "type": "string"
     },
+    "dcmStowSpoolDirectory": {
+      "title": "STOW-RS Spool Directory",
+      "description": "Path to Directory used by STOW-RS Service to spool Bulkdata of XML/JSON Metadata and Bulk Data Request Messages.",
+      "type": "string"
+    },
     "hl7PatientUpdateTemplateURI": {
       "title": "HL7 Patient Update Template URI",
       "description": "Specifies URI for the style sheet used by HL7v2 Patient Update Service.",
+      "type": "string"
+    },
+    "hl7ImportReportTemplateURI": {
+      "title": "HL7 Import Report Template URI",
+      "description": "Specifies URI for the style sheet to transcode received HL7 ORU^R01 to DICOM SR.",
+      "type": "string"
+    },
+    "hl7ScheduleProcedureTemplateURI": {
+      "title": "HL7 Schedule Procedure Template URI",
+      "description": "Specifies URI for the style sheet to transcode received HL7 ORM^O01, OMI^O23, OMG^O19 to DICOM MWL items.",
+      "type": "string"
+    },
+    "hl7LogFilePattern": {
+      "title": "HL7 Log File Pattern",
+      "description": "Path to HL7 messages which will be captured exactly as received. If absent, there is no logging.",
+      "type": "string"
+    },
+    "hl7ErrorLogFilePattern": {
+      "title": "HL7 Error Log File Pattern",
+      "description": "Path to HL7 messages which will be captured exactly as received, when processing of HL7 messages fails. If absent, there is no logging.",
       "type": "string"
     },
     "dcmUnzipVendorDataToURI": {
@@ -192,32 +297,199 @@
       "description": "Specifies URI of directory into which ZIP stream in Device Vendor Data attribute will be extracted",
       "type": "string"
     },
+    "dcmPurgeQueueMessagePollingInterval": {
+      "title": "Purge Queue Messages Polling Interval",
+      "description": "Polling Interval for purging queue messages in ISO-8601 duration format PnDTnHnMn.nS. If absent, there is no deletion",
+      "type": "string"
+    },
+    "dcmPurgeQueueMessageFetchSize": {
+      "title": "Purge Completed Queue Messages Fetch Size",
+      "description": "Number of Completed Queue Messages to be purged; 100 if absent",
+      "type": "integer",
+      "minimum": 0,
+      "exclusiveMinimum": true
+    },
+    "dcmWadoSpoolDirectory": {
+      "title": "Wado-RS Spool Directory",
+      "description": "Path to Wado-RS spool directory used to aggregate uncompressed frames. If absent, aggregation done in temp directory.",
+      "type": "string"
+    },
+    "dcmRejectExpiredStudiesPollingInterval": {
+      "title": "Reject Expired Studies Polling Interval",
+      "description": "Polling Interval for rejecting expired Studies and Series in ISO-8601 duration format PnDTnHnMn.nS. If absent, neither expired Studies nor Series will be rejected automatically",
+      "type": "string"
+    },
+    "dcmRejectExpiredStudiesPollingStartTime": {
+      "title": "Reject Expired Studies Polling Start Time",
+      "description": "Time when the polling interval for rejecting expired Studies and Series starts in ISO-8601 time format [hh][mm][ss]. Archive start time if absent.",
+      "type": "string"
+    },
+    "dcmRejectExpiredStudiesFetchSize": {
+      "title": "Reject Expired Studies Fetch Size",
+      "description": "Maximal number of expired Studies fetched in one query; If absent, expired Studies will not be rejected automatically",
+      "type": "integer",
+      "minimum": 0,
+      "exclusiveMinimum": true
+    },
+    "dcmRejectExpiredSeriesFetchSize": {
+      "title": "Reject Expired Series Fetch Size",
+      "description": "Maximal number of expired Series fetched in one query; If absent, expired Series will not be rejected automatically",
+      "type": "integer",
+      "minimum": 0,
+      "exclusiveMinimum": true
+    },
+    "dcmRejectExpiredStudiesAETitle": {
+      "title": "Reject Expired Studies AE Title",
+      "description": "AE Title of Local Application Entity performing the automatic rejection of expired Studies and Series. If absent, neither expired Studies nor Series will be rejected automatically.",
+      "type": "string"
+    },
+    "dcmFallbackCMoveSCPStudyOlderThan": {
+      "title": "Fallback C-Move SCP Study Older Than",
+      "description": "Specifies threshold for Study Date in format YYYYMMDD for marking received Studies as (potential) incomplete to enforce the retrieve from configured dcmFallbackCMoveSCP",
+      "type": "string"
+    },
+    "dcmStorePermissionServiceURL": {
+      "title": "Store Permission Service URL",
+      "description": "URL of Store Permission Service which will be invoked on receive of the first object of a study. {<dicomTag>} will be replaced by the value of the attribute in the object. E.g. http://host.name/storage-permission/study/{0020000D}?patientId={00100020}&patientIdIssuer={00100021}&studyDescription={00081030}",
+      "type": "string"
+    },
+    "dcmStorePermissionServiceResponsePattern": {
+      "title": "Store Permission Service Response Pattern",
+      "description": "Regular Expression applied to responses from Store Permission Service to determine agreement for storage. E.g. (?s).*\"validation\"\\s*:\\s*\"true\".* . If absent, every success response will be treated as agreement for storage.",
+      "type": "string"
+    },
+    "dcmStorePermissionCacheStaleTimeout": {
+      "title": "Store Permission Cache Stale Timeout",
+      "description": "Maximal staleness of cached responses from Storage Permission Service in ISO-8601 duration format PnDTnHnMn.nS. If absent, cached responses are only removed on reaching the maximal cache size.",
+      "type": "string"
+    },
+    "dcmStoreUpdateDBMaxRetries": {
+      "title": "Store Update DB Maximum Number of Retries",
+      "description": "Maximum number of retries to update the database on storage; 1 if absent",
+      "type": "integer",
+      "minimum": 0
+    },
+    "dcmStorePermissionCacheSize": {
+      "title": "Store Permission Cache Size",
+      "description": "Maximum number of cached responses from Storage Permission Service; 10 if absent",
+      "type": "integer",
+      "minimum": 0,
+      "exclusiveMinimum": true
+    },
+    "dcmAllowRejectionForDataRetentionPolicyExpired": {
+      "title": "Allow Rejection For Data Retention Policy Expired",
+      "description": "Allow Rejection For Data Retention Policy Expired : NEVER, ALWAYS, STUDY_RETENTION_POLICY. If absent, STUDY_RETENTION_POLICY will be applied.",
+      "type": "string",
+      "enum": [
+        "NEVER",
+        "ALWAYS",
+        "STUDY_RETENTION_POLICY"
+      ]
+    },
+    "dcmAllowDeleteStudyPermanently": {
+      "title": "Allow Delete Study permanently",
+      "description": "Allow to delete Study permanently. Enumerated values: ALWAYS, REJECTED (= only already rejected Studies). If absent, REJECTED will be applied.",
+      "type": "string",
+      "enum": [
+        "ALWAYS",
+        "REJECTED"
+      ]
+    },
     "dcmAttributeFilter": {
-      "$ref": "attributeFilter.schema.json"
+      "title": "Attribute Filter",
+      "description": "Specifies Attributes stored in the database",
+      "type": "array",
+      "items" : {
+        "$ref": "attributeFilter.schema.json"
+      }
     },
     "dcmStorage": {
-      "$ref": "storage.schema.json"
+      "title": "Storage Descriptor",
+      "description": "Specifies Storage System",
+      "type": "array",
+      "items" : {
+        "$ref": "storage.schema.json"
+      }
     },
     "dcmQueryRetrieveView": {
-      "$ref": "queryRetrieveView.schema.json"
+      "title": "Query Retrieve View",
+      "description": "Specifies behavior on Rejection Note Stored",
+      "type": "array",
+      "items" : {
+        "$ref": "queryRetrieveView.schema.json"
+      }
     },
     "dcmQueue": {
-      "$ref": "queue.schema.json"
+      "title": "Queue",
+      "description": "Managed JMS Queue",
+      "type": "array",
+      "items" : {
+        "$ref": "queue.schema.json"
+      }
     },
     "dcmExporter": {
-      "$ref": "exporter.schema.json"
+      "title": "Exporter Descriptor",
+      "description": "Exporter Descriptor",
+      "type": "array",
+      "items" : {
+        "$ref": "exporter.schema.json"
+      }
     },
     "dcmExportRule": {
-      "$ref": "dcmExportRule"
+      "title": "Export Rule",
+      "description": "Export Rule",
+      "type": "array",
+      "items" : {
+        "$ref": "exportRule.schema.json"
+      }
     },
     "dcmArchiveCompressionRule": {
-      "$ref": "archiveCompressionRule.schema.json"
+      "title": "Archive Compression rule",
+      "description": "Archive Compression rule",
+      "type": "array",
+      "items" : {
+        "$ref": "archiveCompressionRule.schema.json"
+      }
     },
     "dcmArchiveAttributeCoercion": {
-      "$ref": "archiveAttributeCoercion.schema.json"
+      "title": "Archive Attribute Coercion",
+      "description": "Archive Attribute Coercion of received/sent DIMSE",
+      "type": "array",
+      "items" : {
+        "$ref": "archiveAttributeCoercion.schema.json"
+      }
     },
     "dcmRejectionNote": {
-      "$ref": "rejectionNote.schema.json"
+      "title": "Rejection Note",
+      "description": "Specifies behavior on Rejection Note Stored",
+      "type": "array",
+      "items" : {
+        "$ref": "rejectionNote.schema.json"
+      }
+    },
+    "dcmStudyRetentionPolicy": {
+      "title": "Study Retention Policy",
+      "description": "Study Retention Policy",
+      "type": "array",
+      "items" : {
+        "$ref": "studyRetentionPolicy.schema.json"
+      }
+    },
+    "dcmIDGenerator": {
+      "title": "ID Generator",
+      "description": "ID Generator",
+      "type": "array",
+      "items" : {
+        "$ref": "idGenerator.schema.json"
+      }
+    },
+    "hl7ForwardRule": {
+      "title": "HL7 Forward Rule",
+      "description": "HL7 Forward Rule",
+      "type": "array",
+      "items" : {
+        "$ref": "hl7ForwardRule.schema.json"
+      }
     }
   }
 }

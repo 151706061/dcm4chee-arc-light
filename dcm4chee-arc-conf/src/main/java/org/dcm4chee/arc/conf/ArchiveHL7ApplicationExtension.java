@@ -40,15 +40,27 @@
 
 package org.dcm4chee.arc.conf;
 
+import org.dcm4che3.hl7.HL7Segment;
 import org.dcm4che3.net.hl7.HL7ApplicationExtension;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
 
 /**
  * @author Gunter Zeilinger <gunterze@gmail.com>
+ * @author Vrinda Nayak <vrinda.nayak@j4care.com>
  * @since Jul 2015
  */
 public class ArchiveHL7ApplicationExtension extends HL7ApplicationExtension{
 
+    private String aeTitle;
     private String patientUpdateTemplateURI;
+    private String importReportTemplateURI;
+    private String scheduleProcedureTemplateURI;
+    private String hl7LogFilePattern;
+    private String hl7ErrorLogFilePattern;
+    private final ArrayList<HL7ForwardRule> hl7ForwardRules = new ArrayList<>();
 
     public ArchiveDeviceExtension getArchiveDeviceExtension() {
         return hl7App.getDevice().getDeviceExtension(ArchiveDeviceExtension.class);
@@ -57,7 +69,22 @@ public class ArchiveHL7ApplicationExtension extends HL7ApplicationExtension{
     @Override
     public void reconfigure(HL7ApplicationExtension src) {
         ArchiveHL7ApplicationExtension arcapp = (ArchiveHL7ApplicationExtension) src;
+        aeTitle = arcapp.aeTitle;
         patientUpdateTemplateURI = arcapp.patientUpdateTemplateURI;
+        importReportTemplateURI = arcapp.importReportTemplateURI;
+        scheduleProcedureTemplateURI = arcapp.scheduleProcedureTemplateURI;
+        hl7LogFilePattern = arcapp.hl7LogFilePattern;
+        hl7ErrorLogFilePattern = arcapp.hl7ErrorLogFilePattern;
+        hl7ForwardRules.clear();
+        hl7ForwardRules.addAll(arcapp.hl7ForwardRules);
+    }
+
+    public String getAETitle() {
+        return aeTitle;
+    }
+
+    public void setAETitle(String aeTitle) {
+        this.aeTitle = aeTitle;
     }
 
     public String getPatientUpdateTemplateURI() {
@@ -71,5 +98,85 @@ public class ArchiveHL7ApplicationExtension extends HL7ApplicationExtension{
     public String patientUpdateTemplateURI() {
         return patientUpdateTemplateURI != null ? patientUpdateTemplateURI
                 : getArchiveDeviceExtension().getPatientUpdateTemplateURI();
+    }
+
+    public String getImportReportTemplateURI() {
+        return importReportTemplateURI;
+    }
+
+    public void setImportReportTemplateURI(String importReportTemplateURI) {
+        this.importReportTemplateURI = importReportTemplateURI;
+    }
+
+    public String importReportTemplateURI() {
+        return importReportTemplateURI != null ? importReportTemplateURI
+                : getArchiveDeviceExtension().getImportReportTemplateURI();
+    }
+
+    public String getScheduleProcedureTemplateURI() {
+        return scheduleProcedureTemplateURI;
+    }
+
+    public void setScheduleProcedureTemplateURI(String scheduleProcedureTemplateURI) {
+        this.scheduleProcedureTemplateURI = scheduleProcedureTemplateURI;
+    }
+
+    public String scheduleProcedureTemplateURI() {
+        return scheduleProcedureTemplateURI != null ? scheduleProcedureTemplateURI
+                : getArchiveDeviceExtension().getScheduleProcedureTemplateURI();
+    }
+
+    public String getHl7LogFilePattern() {
+        return hl7LogFilePattern;
+    }
+
+    public void setHl7LogFilePattern(String hl7LogFilePattern) {
+        this.hl7LogFilePattern = hl7LogFilePattern;
+    }
+
+    public String hl7LogFilePattern() {
+        return hl7LogFilePattern != null ? hl7LogFilePattern
+                : getArchiveDeviceExtension().getHl7LogFilePattern();
+    }
+
+    public String getHl7ErrorLogFilePattern() {
+        return hl7ErrorLogFilePattern;
+    }
+
+    public void setHl7ErrorLogFilePattern(String hl7ErrorLogFilePattern) {
+        this.hl7ErrorLogFilePattern = hl7ErrorLogFilePattern;
+    }
+
+    public String hl7ErrorLogFilePattern() {
+        return hl7ErrorLogFilePattern != null ? hl7ErrorLogFilePattern
+                : getArchiveDeviceExtension().getHl7ErrorLogFilePattern();
+    }
+
+    public void removeHL7ForwardRule(HL7ForwardRule rule) {
+        hl7ForwardRules.remove(rule);
+    }
+
+    public void clearHL7ForwardRules() {
+        hl7ForwardRules.clear();
+    }
+
+    public void addHL7ForwardRule(HL7ForwardRule rule) {
+        hl7ForwardRules.add(rule);
+    }
+
+    public Collection<HL7ForwardRule> getHL7ForwardRules() {
+        return hl7ForwardRules;
+    }
+
+    public Collection<String> forwardDestinations(String hostName, HL7Segment msh) {
+        HashSet<String> dests = new HashSet<>();
+        for (Collection<HL7ForwardRule> rules
+                : new Collection[]{hl7ForwardRules, getArchiveDeviceExtension().getHL7ForwardRules() })
+            for (HL7ForwardRule rule : rules)
+                if (rule.match(hostName, msh))
+                    for (String dest : rule.getDestinations()) {
+                        dests.add(dest);
+                    }
+        return dests;
     }
 }

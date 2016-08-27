@@ -45,6 +45,8 @@ import org.dcm4chee.arc.conf.ArchiveDeviceExtension;
 import org.dcm4chee.arc.conf.QueueDescriptor;
 import org.dcm4chee.arc.entity.QueueMessage;
 import org.dcm4chee.arc.qmgt.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.ejb.Stateless;
 import javax.ejb.TransactionAttribute;
@@ -65,6 +67,8 @@ import java.util.List;
  */
 @Stateless
 public class QueueManagerEJB implements QueueManager {
+
+    static final Logger LOG = LoggerFactory.getLogger(QueueManagerEJB.class);
 
     @PersistenceContext(unitName="dcm4chee-arc")
     private EntityManager em;
@@ -87,54 +91,85 @@ public class QueueManagerEJB implements QueueManager {
     @Override
     public void scheduleMessage(String queueName, ObjectMessage msg) {
         sendMessage(descriptorOf(queueName), msg, 0L);
-        try {
-            em.persist(new QueueMessage(queueName, msg));
-        } catch (JMSException e) {
-            throw toJMSRuntimeException(e);
-        }
+        QueueMessage entity = new QueueMessage(queueName, msg);
+        em.persist(entity);
+        LOG.info("Schedule Task[id={}] at Queue {}", entity.getMessageID(), entity.getQueueName());
     }
 
     @Override
     public boolean onProcessingStart(String msgId) {
         QueueMessage entity = findQueueMessage(msgId);
-        if (entity == null || !entity.getStatus().equals(QueueMessage.Status.SCHEDULED))
+        if (entity == null || !entity.getStatus().equals(QueueMessage.Status.SCHEDULED)) {
+            if (entity == null)
+                LOG.info("Suppress processing of Task[id={}]", msgId);
+            else
+                LOG.info("Suppress processing of Task[id={}] at Queue {} with Status: {}",
+                        msgId, entity.getQueueName(), entity.getStatus());
             return false;
+        }
         entity.setProcessingStartTime(new Date());
         entity.setStatus(QueueMessage.Status.IN_PROCESS);
+        LOG.info("Start processing Task[id={}] from Queue {}", entity.getMessageID(), entity.getQueueName());
         return true;
     }
 
     @Override
     public void onProcessingSuccessful(String msgId, Outcome outcome) {
         QueueMessage entity = findQueueMessage(msgId);
-        if (entity == null)
+        if (entity == null) {
+            LOG.info("Finished processing of Task[id={}]", msgId);
             return;
-
+        }
+        QueueMessage.Status status = outcome.getStatus();
+        String queueName = entity.getQueueName();
         entity.setProcessingEndTime(new Date());
-        entity.setStatus(outcome.getStatus());
         entity.setOutcomeMessage(outcome.getDescription());
+        if (status == QueueMessage.Status.COMPLETED) {
+            LOG.info("Finished processing of Task[id={}] at Queue {}", msgId, queueName);
+            entity.setStatus(status);
+            return;
+        }
+        if (status == QueueMessage.Status.FAILED || status == QueueMessage.Status.WARNING) {
+            QueueDescriptor descriptor = descriptorOf(queueName);
+            long delay = status == QueueMessage.Status.FAILED || descriptor.isRetryOnWarning()
+                    ? descriptor.getRetryDelayInSeconds(entity.incrementNumberOfFailures())
+                    : -1L;
+            if (delay >= 0) {
+                LOG.info("Failed processing of Task[id={}] at Queue {} with Status {} - retry",
+                        msgId, queueName, status);
+                rescheduleMessage(entity, descriptor, delay * 1000L);
+            }
+        }
+        LOG.warn("Failed processing of Task[id={}] at Queue {} with Status {}", msgId, queueName, status);
+        entity.setStatus(status);
     }
 
     @Override
-    public void onProcessingFailed(String msgId, Exception e) {
+    public void onProcessingFailed(String msgId, Throwable e) {
         QueueMessage entity = findQueueMessage(msgId);
-        if (entity == null)
+        if (entity == null) {
+            LOG.warn("Failed processing of Task[id={}]:\n", msgId, e);
             return;
+        }
 
         entity.setErrorMessage(e.getMessage());
         entity.setProcessingEndTime(new Date());
         QueueDescriptor descriptor = descriptorOf(entity.getQueueName());
         long delay = descriptor.getRetryDelayInSeconds(entity.incrementNumberOfFailures());
-        if (delay < 0)
+        if (delay < 0) {
+            LOG.warn("Failed processing of Task[id={}] at Queue {}:\n", msgId, entity.getQueueName(), e);
             entity.setStatus(QueueMessage.Status.FAILED);
-        else
+        } else {
+            LOG.info("Failed processing of Task[id={}] at Queue {} - retry:\n", msgId, entity.getQueueName(), e);
             rescheduleMessage(entity, descriptor, delay * 1000L);
+        }
     }
 
     @Override
     public void cancelProcessing(String msgId) throws MessageAlreadyDeletedException {
         QueueMessage entity = getQueueMessage(msgId);
         entity.setStatus(QueueMessage.Status.CANCELED);
+        LOG.info("Cancel processing of Task[id={}] at Queue {}", msgId, entity.getQueueName());
         messageCanceledEvent.fire(new MessageCanceled(msgId));
     }
 
@@ -146,7 +181,7 @@ public class QueueManagerEJB implements QueueManager {
             case SCHEDULED:
             case IN_PROCESS:
                 throw new IllegalMessageStatusException(
-                        "Cannot reschedule Message[id=" + msgId + "] with status: " + entity.getStatus());
+                        "Cannot reschedule Task[id=" + msgId + "] with Status: " + entity.getStatus());
         }
         entity.setNumberOfFailures(0);
         entity.setErrorMessage(null);
@@ -155,21 +190,17 @@ public class QueueManagerEJB implements QueueManager {
     }
 
     private void rescheduleMessage(QueueMessage entity, QueueDescriptor descriptor, long delay) {
-        try {
-            ObjectMessage msg = entity.initProperties(createObjectMessage(entity.getMessageBody()));
-            sendMessage(descriptor, msg, delay);
-            entity.setMessageID(msg.getJMSMessageID());
-            entity.setScheduledTime(new Date(System.currentTimeMillis() + delay));
-            entity.setStatus(QueueMessage.Status.SCHEDULED);
-        } catch (JMSException e) {
-            throw toJMSRuntimeException(e);
-        }
-
+        ObjectMessage msg = entity.initProperties(createObjectMessage(entity.getMessageBody()));
+        sendMessage(descriptor, msg, delay);
+        entity.reschedule(msg, new Date(System.currentTimeMillis() + delay));
+        LOG.info("Reschedule Task[id={}] at Queue {}", entity.getMessageID(), entity.getQueueName());
     }
 
     @Override
     public void deleteMessage(String msgId) throws MessageAlreadyDeletedException {
-        em.remove(getQueueMessage(msgId));
+        QueueMessage entity = getQueueMessage(msgId);
+        em.remove(entity);
+        LOG.info("Delete Task[id={}] from Queue {}", entity.getMessageID(), entity.getQueueName());
     }
 
     @Override
@@ -211,10 +242,6 @@ public class QueueManagerEJB implements QueueManager {
         jmsCtx.createProducer().setDeliveryDelay(delay).send(lookup(desc.getJndiName()), msg);
     }
 
-    private JMSRuntimeException toJMSRuntimeException(JMSException e) {
-        return new JMSRuntimeException(e.getMessage(), e.getErrorCode(), e.getCause());
-    }
-
     private Queue lookup(String jndiName) {
         try {
             return InitialContext.doLookup(jndiName);
@@ -224,7 +251,7 @@ public class QueueManagerEJB implements QueueManager {
     }
 
     private QueueDescriptor descriptorOf(String queueName) {
-        return device.getDeviceExtension(ArchiveDeviceExtension.class).getQueueDescriptor(queueName);
+        return device.getDeviceExtension(ArchiveDeviceExtension.class).getQueueDescriptorNotNull(queueName);
     }
 
     private QueueMessage findQueueMessage(String msgId) {

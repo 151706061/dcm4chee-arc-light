@@ -8,6 +8,11 @@
       "description": "Storage ID",
       "type": "string"
     },
+    "dcmMetadataStorageID": {
+      "title": "Metadata Storage ID",
+      "description": "ID of Storage on which Metadata is stored in JSON format - additionally to the complete DICOM composite object. If absent, metadata is not stored additionally",
+      "type": "string"
+    },
     "dcmStoreAccessControlID": {
       "title": "Store Access Control ID",
       "description": "Access Contol ID assigned to Studies received by this AE",
@@ -31,6 +36,16 @@
         "SAME_SOURCE_AND_SERIES"
       ]
     },
+    "dcmAcceptMissingPatientID": {
+      "title": "Accept Missing Patient ID",
+      "description": "Indicates if objects without Patient IDs shall be accepted and if a Patient ID shall be created. Enumerated values: YES, NO, CREATE. If absent, CREATE will be applied.",
+      "type": "string",
+      "enum": [
+        "YES",
+        "NO",
+        "CREATE"
+      ]
+    },
     "dcmQueryRetrieveViewID": {
       "title": "Query/Retrieve View ID",
       "description": "Query/Retrieve View Identifier",
@@ -41,10 +56,23 @@
       "description": "Path to Bulk Data Spool Directory",
       "type": "string"
     },
-    "dcmQueryMatchUnknown": {
-      "title": "Query Match Unknown",
-      "description": "Indicates if missing Attributes or zero-length Attribute values in stored entities shall considered unknown and all matching against it shall be considered a successful match; enabled if absent",
-      "type": "boolean"
+    "dcmHideSPSWithStatusFromMWL": {
+      "title": "Hide SPS with Status",
+      "description": "Scheduled Procedure Step Status codes of MWL items which shall not be returned by the MWL SCP",
+      "type": "array",
+      "items" : {
+        "type": "string",
+        "enum": [
+          "SCHEDULED",
+          "ARRIVED",
+          "READY",
+          "STARTED",
+          "DEPARTED",
+          "CANCELLED",
+          "DISCONTINUED",
+          "COMPLETED"
+        ]
+      }
     },
     "dcmPersonNameComponentOrderInsensitiveMatching": {
       "title": "Person Name Component Order Insensitive Matching",
@@ -74,13 +102,35 @@
     "dcmQidoMaxNumberOfResults": {
       "title": "Qido Max Number Of Results",
       "description": "Maximal number of return results by QIDO-RS Service. 0 (=unlimited) if absent",
-      "type": "integer"
+      "type": "integer",
+      "minimum": 0
     },
     "dcmFwdMppsDestination": {
       "title": "Mpps Forward Destination",
       "description": "Destination to forward MPPS N-CREATE RQ and N-SET RQ",
       "type": "array",
       "items" : { "type": "string" }
+    },
+    "dcmIanDestination": {
+      "title": "Ian Destination",
+      "description": "Destination to send IAN N-CREATE RQ",
+      "type": "array",
+      "items" : { "type": "string" }
+    },
+    "dcmIanDelay": {
+      "title": "IAN Delay",
+      "description": "Delay in ISO-8601 duration format PnDTnHnMn.nS after which an IAN for a received study is sent to configured IAN destinations. If absent, IANs are triggered by received MPPS",
+      "type": "string"
+    },
+    "dcmIanTimeout": {
+      "title": "IAN Timeout",
+      "description": "Timeout in ISO-8601 duration format PnDTnHnMn.nS for waiting on receive of instances referenced in MPPS; check for completeness forever if absent",
+      "type": "string"
+    },
+    "dcmIanOnTimeout": {
+      "title": "IAN On Timeout",
+      "description": "Specifies if the IAN is sent if the timeout for waiting on receive of instances referenced is exceeded; just stop check for completeness on timeout if absent",
+      "type": "boolean"
     },
     "dcmFallbackCMoveSCP": {
       "title": "Fallback C-Move SCP",
@@ -92,25 +142,89 @@
       "description": "AE Title of local C-STORE-SCP to be set as Move Destination in C-MOVE RQs forwarded to the external C-MOVE SCP specified by dcmFallbackCMoveSCP",
       "type": "string"
     },
-    "dcmFallbackCMoveSCPLevel": {
-      "title": "Fallback C-Move SCP Level",
-      "description": "Retrieve Level in C-MOVE RQs forwarded to the external C-MOVE SCP specified by dcmFallbackCMoveSCP. Enumerated values: STUDY, SERIES. Use original Retrieve Level if absent",
-      "type": "string",
-      "enum": [
-        "STUDY",
-        "SERIES",
-        "IMAGE"
-      ]
-    },
     "dcmFallbackCMoveSCPRetries": {
       "title": "Fallback C-Move SCP Retries",
-      "description": "Maximal number of retries to retrieve not available objects from C-MOVE SCP configured by dcmFallbackCMoveSCP. Only effective with dcmFallbackCMoveSCPLevel=STUDY. -1 = forever. Use value configured on Device level, if absent",
+      "description": "Maximal number of retries to retrieve not available objects from C-MOVE SCP configured by dcmFallbackCMoveSCP. -1 = forever. Use value configured on Device level, if absent",
       "type": "integer"
     },
     "dcmAltCMoveSCP": {
-      "title": "AltCMoveSCP",
+      "title": "Alternative C-Move SCP",
       "description": "AE Title of alternative C-MOVE SCP to forward C-MOVE RQs if the requested Entities are not located on a local attached Storage",
       "type": "string"
+    },
+    "dcmFallbackCMoveSCPStudyOlderThan": {
+      "title": "Fallback C-Move SCP Study Older Than",
+      "description": "Specifies threshold for Study Date in format YYYYMMDD for marking received Studies as (potential) incomplete to enforce the retrieve from configured dcmFallbackCMoveSCP",
+      "type": "string"
+    },
+    "dcmStorePermissionServiceURL": {
+      "title": "Store Permission Service URL",
+      "description": "URL of Store Permission Service which will be invoked on receive of the first object of a study. {<dicomTag>} will be replaced by the value of the attribute in the object. E.g. http://host.name/storage-permission/study/{0020000D}?patientId={00100020}&patientIdIssuer={00100021}&studyDescription={00081030}",
+      "type": "string"
+    },
+    "dcmStorePermissionServiceResponsePattern": {
+      "title": "Store Permission Service Response Pattern",
+      "description": "Regular Expression applied to responses from Store Permission Service to determine agreement for storage. E.g. (?s).*\"validation\"\\s*:\\s*\"true\".* . If absent, every success response will be treated as agreement for storage.",
+      "type": "string"
+    },
+    "dcmAllowRejectionForDataRetentionPolicyExpired": {
+      "title": "Allow Rejection For Data Retention Policy Expired",
+      "description": "Allow Rejection For Data Retention Policy Expired : NEVER, ALWAYS, STUDY_RETENTION_POLICY. If absent, STUDY_RETENTION_POLICY will be applied.",
+      "type": "string",
+      "enum": [
+        "NEVER",
+        "ALWAYS",
+        "STUDY_RETENTION_POLICY"
+      ]
+    },
+    "dcmAcceptedUserRole": {
+      "title": "Accepted User Role",
+      "description": "Roles of users from which web requests are accepted; any if absent.",
+      "type": "array",
+      "items" : {
+        "type": "string"
+      }
+    },
+    "dcmAllowDeleteStudyPermanently": {
+      "title": "Allow Delete Study permanently",
+      "description": "Allow to delete Study permanently. Enumerated values: ALWAYS, REJECTED (= only already rejected Studies). If absent, REJECTED will be applied.",
+      "type": "string",
+      "enum": [
+        "ALWAYS",
+        "REJECTED"
+      ]
+    },
+    "dcmExportRule": {
+      "title": "Export Rule",
+      "description": "Export Rule",
+      "type": "array",
+      "items" : {
+        "$ref": "exportRule.schema.json"
+      }
+    },
+    "dcmArchiveCompressionRule": {
+      "title": "Archive Compression rule",
+      "description": "Archive Compression rule",
+      "type": "array",
+      "items" : {
+        "$ref": "archiveCompressionRule.schema.json"
+      }
+    },
+    "dcmArchiveAttributeCoercion": {
+      "title": "Archive Attribute Coercion",
+      "description": "Archive Attribute Coercion of received/sent DIMSE",
+      "type": "array",
+      "items" : {
+        "$ref": "archiveAttributeCoercion.schema.json"
+      }
+    },
+    "dcmStudyRetentionPolicy": {
+      "title": "Study Retention Policy",
+      "description": "Study Retention Policy",
+      "type": "array",
+      "items" : {
+        "$ref": "studyRetentionPolicy.schema.json"
+      }
     }
   }
 }

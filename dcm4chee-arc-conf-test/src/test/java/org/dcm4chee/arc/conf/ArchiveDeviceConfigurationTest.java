@@ -61,6 +61,7 @@ import static org.junit.Assert.assertNotNull;
 
 /**
  * @author Gunter Zeilinger <gunterze@gmail.com>
+ * @author Vrinda Nayak <vrinda.nayak@j4care.com>
  * @since Jul 2015
  */
 public class ArchiveDeviceConfigurationTest {
@@ -92,7 +93,7 @@ public class ArchiveDeviceConfigurationTest {
                 String aet = ArchiveDeviceFactory.OTHER_AES[i];
                 config.registerAETitle(aet);
                 config.persist(setThisNodeCertificates(
-                        ArchiveDeviceFactory.createDevice(ArchiveDeviceFactory.OTHER_DEVICES[i],
+                        ArchiveDeviceFactory.createDevice(ArchiveDeviceFactory.OTHER_DEVICES[i], ArchiveDeviceFactory.DEVICE_TYPES[i],
                             ArchiveDeviceFactory.OTHER_ISSUER[i],
                             ArchiveDeviceFactory.OTHER_INST_CODES[i],
                             aet, "localhost",
@@ -102,7 +103,7 @@ public class ArchiveDeviceConfigurationTest {
             hl7Config.registerHL7Application(ArchiveDeviceFactory.PIX_MANAGER);
             for (int i = ArchiveDeviceFactory.OTHER_AES.length; i < ArchiveDeviceFactory.OTHER_DEVICES.length; i++)
                 config.persist(setThisNodeCertificates(
-                        ArchiveDeviceFactory.createDevice(ArchiveDeviceFactory.OTHER_DEVICES[i])));
+                        ArchiveDeviceFactory.createDevice(ArchiveDeviceFactory.OTHER_DEVICES[i], configType)));
             config.persist(setThisNodeCertificates(
                     ArchiveDeviceFactory.createHL7Device("hl7rcv",
                         ArchiveDeviceFactory.SITE_A,
@@ -110,9 +111,11 @@ public class ArchiveDeviceConfigurationTest {
                         ArchiveDeviceFactory.PIX_MANAGER,
                         "localhost", 2576, 12576)));
         }
-        Device arrDevice = ArchiveDeviceFactory.createARRDevice("logstash", Connection.Protocol.SYSLOG_UDP, 514);
+        Device arrDevice = ArchiveDeviceFactory.createARRDevice("logstash", Connection.Protocol.SYSLOG_UDP, 514, configType);
         config.persist(arrDevice);
         config.registerAETitle("DCM4CHEE");
+        config.registerAETitle("DCM4CHEE_ADMIN");
+        config.registerAETitle("DCM4CHEE_TRASH");
 
         Device arc = setThisNodeCertificates(
                 ArchiveDeviceFactory.createArchiveDevice("dcm4chee-arc", arrDevice, configType));
@@ -120,6 +123,8 @@ public class ArchiveDeviceConfigurationTest {
             setAuthorizedNodeCertificates(arc);
         }
         config.persist(arc);
+        Device keycloak = ArchiveDeviceFactory.createKeycloakDevice("keycloak", arrDevice, configType);
+        config.persist(keycloak);
         ApplicationEntity ae = config.findApplicationEntity("DCM4CHEE");
         assertNotNull(ae);
         assertDeviceEquals(arc, ae.getDevice());
@@ -150,6 +155,9 @@ public class ArchiveDeviceConfigurationTest {
         } catch (ConfigurationNotFoundException e) {}
         try {
             config.removeDevice("logstash");
+        } catch (ConfigurationNotFoundException e) {}
+        try {
+            config.removeDevice("keycloak");
         } catch (ConfigurationNotFoundException e) {}
         try {
             config.removeDevice("hl7rcv");

@@ -53,6 +53,14 @@
     </attributes>
   </entity>
 
+  <entity class="org.dcm4chee.arc.entity.UIDMap">
+    <attributes>
+      <basic name="encodedMap" optional="false">
+        <column name="uidmap" column-definition="${blob}"/>
+      </basic>
+    </attributes>
+  </entity>
+
   <entity class="org.dcm4chee.arc.entity.QueueMessage">
     <attributes>
       <basic name="messageBody" optional="false">
@@ -60,32 +68,6 @@
       </basic>
     </attributes>
   </entity>
-
-  <entity class="org.dcm4chee.arc.entity.Study">
-    <sequence-generator name="study_pk_seq" sequence-name="study_pk_seq" allocation-size="1"/>
-    <attributes>
-      <basic name="failedSOPInstanceUIDList">
-        <column name="failed_iuids" column-definition="varchar(4000)" />
-      </basic>
-    </attributes>
-  </entity>
-
-  <embeddable class="org.dcm4che3.data.Code">
-    <attributes>
-      <basic name="codeValue" optional="false">
-        <column name="code_value"/>
-      </basic>
-      <basic name="codingSchemeDesignator" optional="false">
-        <column name="code_designator"/>
-      </basic>
-      <basic name="codingSchemeVersion" optional="true">
-        <column name="code_version"/>
-      </basic>
-      <basic name="codeMeaning" optional="false">
-        <column name="code_meaning"/>
-      </basic>
-    </attributes>
-  </embeddable>
 
   <embeddable class="org.dcm4che3.data.Issuer">
     <attributes>

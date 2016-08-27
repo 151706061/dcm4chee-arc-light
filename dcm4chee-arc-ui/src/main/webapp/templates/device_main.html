@@ -1,4 +1,3 @@
-
 <!-- Main Device html-->
 <div class="row device" ng-click="savedCheck($event)">
 	<div class="block_layer" ng-show="showBlockLayer()"></div>
@@ -10,13 +9,14 @@
 	    		name="device" 
 	    		ng-model="devicename" 
 	    		ng-class="activeMenu == 'device_menu' ? 'active_menu': ''" 
-	    		ng-options="obj.dicomDeviceName as obj.dicomDeviceName for obj in devices track by obj.dicomDeviceName" 
+	    		ng-options="obj.dicomDeviceName as obj.dicomDeviceName for obj in devices" 
 	    		on-device-change>
 	    </select>
 	    <div class="more_menu"  ng-click="toggle('device_menu')" ng-swipe-left="toggle('dicomNetworkConnection')" ng-swipe-right="activeMenu = ''">
 			<div class="delete_create_buttons">
 				<div class="create" ng-click="createDevice()" title="Create new device"></div>
 				<div class="delete" ng-click="delete()" title="Delete selected device"></div>
+				<div class="glyphicon glyphicon-duplicate" ng-click="cloneDevice()" title="Clone device"></div>
 			</div>
 		</div>
 		<br>
@@ -34,19 +34,8 @@
 	</div>
 </div>
 <!-- Get hear messages from scope and show in a list -->
-<div class="msg_container">
-	<li ng-repeat="m in msg" class="{{m.status}} msg_{{m.id}} slideInRight animated"  ng-show="m.text" ng-click="closeBox(m)">
-  		<span class="close" data-dismiss="alert" aria-label="close">&times;</span>	
-  		<h4>{{m.title}}</h4>
-  		<p ng-bind-html="m.text"></p>
-  		<div class="progress"></div>
-	</li>
-</div>
-<pre style="display:none">
-	dynamicform: {{dynamicform | json}}
-	hl7ApplicationForm:{{hl7ApplicationForm | json}}
-	hl7ApplicationForm:{{$parent.hl7ApplicationForm | json}}
-	editDevicedicomHost:{{editDevice.dicomHostname.$error.required}}
-	editDevice:{{editDevice.$invalid}}
-	{{wholeDevice | json}}
-</pre>
+
+<!-- <pre style="display:none">
+	wholeDevice: {{wholeDevice | json}}
+	selectModel: {{selectModel | json}}
+</pre> -->

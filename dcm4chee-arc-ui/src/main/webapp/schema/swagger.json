@@ -35,6 +35,14 @@
       "description": "Imaging Object Change Management"
     },
     {
+      "name": "MONITOR-RS",
+      "description": "Archive Monitoring"
+    },
+    {
+      "name": "MWL-RS",
+      "description": "Modality Worklist Management"
+    },
+    {
       "name": "QUEUE-RS",
       "description": "Queue Management"
     }
@@ -137,15 +145,117 @@
         }
       }
     },
+    "/auth": {
+      "get": {
+        "tags": [
+          "CONFIG-RS"
+        ],
+        "summary": "Get Base URL of Auth Server",
+        "operationId": "getAuthServerURL",
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "Base URL of Auth Server",
+            "schema": {
+              "$ref": "#/definitions/URL"
+            }
+          },
+          "default": {
+            "description": "unexpected error"
+          }
+        }
+      }
+    },
+    "/devicename": {
+      "get": {
+        "tags": [
+          "CONFIG-RS"
+        ],
+        "summary": "Get Archive Device Name",
+        "operationId": "devicename",
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "archive device name",
+            "schema": {
+              "$ref": "#/definitions/DeviceName"
+            }
+          },
+          "default": {
+            "description": "unexpected error"
+          }
+        }
+      }
+    },
     "/devices": {
       "get": {
         "tags": [
           "CONFIG-RS"
         ],
-        "summary": "list configured devices",
+        "summary": "List devices",
         "operationId": "listDevices",
         "produces": [
           "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "dicomDeviceName",
+            "in": "query",
+            "description": "Device Name",
+            "type": "string"
+          },
+          {
+            "name": "dicomDescription",
+            "in": "query",
+            "description": "Device Description",
+            "type": "string"
+          },
+          {
+            "name": "dicomManufacturer",
+            "in": "query",
+            "description": "Manufacturer",
+            "type": "string"
+          },
+          {
+            "name": "dicomManufacturerModelName",
+            "in": "query",
+            "description": "Manufacturer Model Name",
+            "type": "string"
+          },
+          {
+            "name": "dicomStationName",
+            "in": "query",
+            "description": "Station Name",
+            "type": "string"
+          },
+          {
+            "name": "dicomPrimaryDeviceType",
+            "in": "query",
+            "description": "Primary Device Type",
+            "type": "string"
+          },
+          {
+            "name": "dicomInstitutionName",
+            "in": "query",
+            "description": "Institution Name",
+            "type": "string"
+          },
+          {
+            "name": "dicomInstitutionDepartmentName",
+            "in": "query",
+            "description": "Institution Department Name",
+            "type": "string"
+          },
+          {
+            "name": "dicomInstalled",
+            "in": "query",
+            "description": "Boolean to indicate whether this device is presently installed on the network",
+            "type": "boolean"
+          }
         ],
         "responses": {
           "200": {
@@ -165,7 +275,7 @@
         "tags": [
           "CONFIG-RS"
         ],
-        "summary": "get device",
+        "summary": "Get Device",
         "operationId": "getDevice",
         "produces": [
           "application/json"
@@ -194,12 +304,12 @@
           }
         }
       },
-      "put": {
+      "post": {
         "tags": [
           "CONFIG-RS"
         ],
-        "summary": "create or update device",
-        "operationId": "createOrUpdateDevice",
+        "summary": "Create Device",
+        "operationId": "createDevice",
         "consumes": [
           "application/json"
         ],
@@ -214,7 +324,46 @@
           {
             "name": "body",
             "in": "body",
-            "description": "new or updated device",
+            "description": "new device",
+            "required": true,
+            "schema": {
+              "$ref": "device.schema.json"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "successful operation"
+          },
+          "409": {
+            "description": "Device with specified name already exists"
+          },
+          "default": {
+            "description": "unexpected error"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "CONFIG-RS"
+        ],
+        "summary": "Update Device",
+        "operationId": "updateDevice",
+        "consumes": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "deviceName",
+            "in": "path",
+            "description": "name of device to update",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "description": "updated device",
             "required": true,
             "schema": {
               "$ref": "device.schema.json"
@@ -226,7 +375,297 @@
             "description": "successful operation"
           },
           "400": {
-            "description": "deviceName in path does not match device name in body"
+            "description": "Device with specified name does not exist"
+          },
+          "default": {
+            "description": "unexpected error"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "CONFIG-RS"
+        ],
+        "summary": "Delete Device",
+        "operationId": "deleteDevice",
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "deviceName",
+            "in": "path",
+            "description": "name of device to delete",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "successful operation"
+          },
+          "404": {
+            "description": "Device not found"
+          },
+          "default": {
+            "description": "unexpected error"
+          }
+        }
+      }
+    },
+    "/aes": {
+      "get": {
+        "tags": [
+          "CONFIG-RS"
+        ],
+        "summary": "List Application Entities",
+        "operationId": "listApplicationEntities",
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "dicomDeviceName",
+            "in": "query",
+            "description": "Device Name",
+            "type": "string"
+          },
+          {
+            "name": "dicomAETitle",
+            "in": "query",
+            "description": "AE Title",
+            "type": "string"
+          },
+          {
+            "name": "dicomDescription",
+            "in": "query",
+            "description": "Device Description",
+            "type": "string"
+          },
+          {
+            "name": "dicomAssociationInitiator",
+            "in": "query",
+            "description": "True if the Network AE can initiate associations, false otherwise",
+            "type": "boolean"
+          },
+          {
+            "name": "dicomAssociationAcceptor",
+            "in": "query",
+            "description": "True if the Network AE can accept associations, false otherwise",
+            "type": "boolean"
+          },
+          {
+            "name": "dicomApplicationCluster",
+            "in": "query",
+            "description": "Application Cluster",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Application Entity list",
+            "schema": {
+              "$ref": "aeList.schema.json"
+            }
+          },
+          "default": {
+            "description": "unexpected error"
+          }
+        }
+      }
+    },
+    "/unique/aets/{aet}": {
+      "put": {
+        "tags": [
+          "CONFIG-RS"
+        ],
+        "summary": "Register Application Entity Title",
+        "operationId": "registerAET",
+        "parameters": [
+          {
+            "name": "aet",
+            "in": "path",
+            "description": "AE Title to register",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "successful operation"
+          },
+          "409": {
+            "description": "AE Title already registered"
+          },
+          "default": {
+            "description": "unexpected error"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "CONFIG-RS"
+        ],
+        "summary": "Unregister Application Entity Title",
+        "operationId": "unregisterAET",
+        "parameters": [
+          {
+            "name": "aet",
+            "in": "path",
+            "description": "AE Title to unregister",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "successful operation"
+          },
+          "404": {
+            "description": "AE Title not found"
+          },
+          "default": {
+            "description": "unexpected error"
+          }
+        }
+      }
+    },
+    "/unique/hl7apps/{appName}": {
+      "put": {
+        "tags": [
+          "CONFIG-RS"
+        ],
+        "summary": "Register HL7 Application and Facility Name",
+        "operationId": "registerHL7App",
+        "parameters": [
+          {
+            "name": "appName",
+            "in": "path",
+            "description": "HL7 Application and Facility Name (Application|Facility) to register",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "successful operation"
+          },
+          "409": {
+            "description": "HL7 Application and Facility Name already registered"
+          },
+          "default": {
+            "description": "unexpected error"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "CONFIG-RS"
+        ],
+        "summary": "Unregister HL7 Application and Facility Name",
+        "operationId": "unregisterHL7App",
+        "parameters": [
+          {
+            "name": "appName",
+            "in": "path",
+            "description": "HL7 Application and Facility Name (Application|Facility) to unregister",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "successful operation"
+          },
+          "404": {
+            "description": "HL7 Application and Facility Name not found"
+          },
+          "default": {
+            "description": "unexpected error"
+          }
+        }
+      }
+    },
+    "/attribute-filter/{entity}": {
+      "get": {
+        "tags": [
+          "CONFIG-RS"
+        ],
+        "summary": "get Attribute Filter",
+        "operationId": "getAttributeFilter",
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "entity",
+            "in": "path",
+            "description": "entity which Attribute Filter to return",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "successful operation",
+            "schema": {
+              "$ref": "attributeFilter.schema.json"
+            }
+          },
+          "404": {
+            "description": "entity not found"
+          },
+          "default": {
+            "description": "unexpected error"
+          }
+        }
+      }
+    },
+    "/monitor/associations": {
+      "get": {
+        "tags": [
+          "MONITOR-RS"
+        ],
+        "summary": "list open Associations",
+        "operationId": "listOpenAssociations",
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "Open Associations",
+            "schema": {
+              "$ref": "#/definitions/Associations"
+            }
+          },
+          "default": {
+            "description": "unexpected error"
+          }
+        }
+      }
+    },
+    "/monitor/associations/{serialNo}": {
+      "delete": {
+        "tags": [
+          "MONITOR-RS"
+        ],
+        "summary": "abort Association",
+        "operationId": "abortAssociation",
+        "parameters": [
+          {
+            "name": "serialNo",
+            "in": "path",
+            "description": "serial No of Association to abort",
+            "required": true,
+            "type": "integer"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "successful operation"
+          },
+          "404": {
+            "description": "no open Association with given serialNo found"
           },
           "default": {
             "description": "unexpected error"
@@ -545,6 +984,463 @@
           },
           "404": {
             "description": "Remote AE Title not found"
+          },
+          "default": {
+            "description": "unexpected error"
+          }
+        }
+      }
+    },
+    "/aets/{aet}/rs/patients": {
+      "post": {
+        "tags": [
+          "IOCM-RS"
+        ],
+        "summary": "create patient",
+        "operationId": "createPatient",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "text/plan"
+        ],
+        "parameters": [
+          {
+            "name": "aet",
+            "in": "path",
+            "description": "Archive AE Title",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Patient ID of created Patient",
+            "schema": {
+              "type": "string"
+            }
+          },
+          "default": {
+            "description": "unexpected error"
+          }
+        }
+      }
+    },
+    "/aets/{aet}/rs/patients/{patientID}": {
+      "put": {
+        "tags": [
+          "IOCM-RS"
+        ],
+        "summary": "update or create patient",
+        "operationId": "updatePatient",
+        "consumes": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "aet",
+            "in": "path",
+            "description": "Archive AE Title",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "patientID",
+            "in": "path",
+            "description": "Patient ID and Issuer encoded as HL7 CX",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "successful operation"
+          },
+          "default": {
+            "description": "unexpected error"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "IOCM-RS"
+        ],
+        "summary": "Delete Patient Permanently",
+        "operationId": "DeletePatient",
+        "parameters": [
+          {
+            "name": "aet",
+            "in": "path",
+            "description": "Archive AE Title",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "patientID",
+            "in": "path",
+            "description": "Patient ID and Issuer encoded as HL7 CX",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "successful operation"
+          },
+          "404": {
+            "description": "no such patient"
+          },
+          "default": {
+            "description": "unexpected error"
+          }
+        }
+      }
+    },
+    "/aets/{aet}/rs/mwlitems": {
+      "get": {
+        "tags": [
+          "MWL-RS"
+        ],
+        "summary": "Search for Scheduled Procedure Steps",
+        "operationId": "SearchForSPS",
+        "produces": [
+          "multipart/related;type=application/dicom+xml",
+          "multipart/related;type=application/json"
+        ],
+        "parameters": [
+          {
+            "name": "aet",
+            "in": "path",
+            "description": "Archive AE Title",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "{attributeID}",
+            "in": "query",
+            "description": "{attributeID}={value}; {attributeID} = {dicomTag} | {dicomKeyword} | {dicomTag}.{attributeID} | {dicomKeyword}.{attributeID}",
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "collectionFormat": "multi"
+          },
+          {
+            "name": "includefield",
+            "in": "query",
+            "description": "includefield={attributeID} | all",
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "collectionFormat": "multi"
+          },
+          {
+            "name": "orderby",
+            "in": "query",
+            "description": "orderby=[-]{attributeID}",
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "collectionFormat": "multi"
+          },
+          {
+            "name": "fuzzymatching",
+            "in": "query",
+            "description": "fuzzy semantic matching of person names",
+            "type": "boolean",
+            "default": false
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "offset={skippedResults}",
+            "type": "integer",
+            "default": 0
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "limit={maximumResults}",
+            "type": "integer"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Matching Scheduled Procedure Steps",
+            "schema": {
+              "type": "file"
+            }
+          },
+          "default": {
+            "description": "unexpected error"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "MWL-RS"
+        ],
+        "summary": "Create/Update Scheduled Procedure Step",
+        "operationId": "CreateUpdateSPS",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "aet",
+            "in": "path",
+            "description": "Archive AE Title",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Created/Updated Scheduled Procedure Step",
+            "schema": {
+              "type": "file"
+            }
+          },
+          "default": {
+            "description": "unexpected error"
+          }
+        }
+      }
+    },
+    "/aets/{aet}/rs/mwlitems/{studyUID}/{spsID}": {
+      "delete": {
+        "tags": [
+          "MWL-RS"
+        ],
+        "summary": "Delete Scheduled Procedure Step",
+        "operationId": "DeleteSPS",
+        "parameters": [
+          {
+            "name": "aet",
+            "in": "path",
+            "description": "Archive AE Title",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "studyUID",
+            "in": "path",
+            "description": "Unique Identifier of the Study",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "spsID",
+            "in": "path",
+            "description": "Identifier of the Scheduled Procedure Step",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "successful operation"
+          },
+          "404": {
+            "description": "no such SPS"
+          },
+          "default": {
+            "description": "unexpected error"
+          }
+        }
+      }
+    },
+    "/aets/{aet}/rs/studies": {
+      "post": {
+        "tags": [
+          "IOCM-RS"
+        ],
+        "summary": "Create/Update Study",
+        "operationId": "CreateUpdateStudy",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "aet",
+            "in": "path",
+            "description": "Archive AE Title",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Created/Updated Study Attributes",
+            "schema": {
+              "type": "file"
+            }
+          },
+          "default": {
+            "description": "unexpected error"
+          }
+        }
+      }
+    },
+    "/aets/{aet}/rs/studies/{studyUID}": {
+      "delete": {
+        "tags": [
+          "IOCM-RS"
+        ],
+        "summary": "Delete Study Permanently",
+        "operationId": "DeleteStudy",
+        "parameters": [
+          {
+            "name": "aet",
+            "in": "path",
+            "description": "Archive AE Title",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "studyUID",
+            "in": "path",
+            "description": "Unique Identifier of the Study",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "successful operation"
+          },
+          "404": {
+            "description": "no such study"
+          },
+          "default": {
+            "description": "unexpected error"
+          }
+        }
+      }
+    },
+    "/aets/{aet}/rs/studies/{studyUID}/copy": {
+      "post": {
+        "tags": [
+          "IOCM-RS"
+        ],
+        "summary": "Copy Instances to Study",
+        "operationId": "CopyInstances",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "aet",
+            "in": "path",
+            "description": "Archive AE Title",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "studyUID",
+            "in": "path",
+            "description": "Unique Identifier of Target Study",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "instanceRefs",
+            "in": "body",
+            "description": "References to Source Instances",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/HierarchicalSOPInstanceReference"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "successful operation",
+            "schema": {
+              "type": "file"
+            }
+          },
+          "404": {
+            "description": "no such study"
+          },
+          "default": {
+            "description": "unexpected error"
+          }
+        }
+      }
+    },
+    "/aets/{aet}/rs/studies/{studyUID}/move/{codeValue}^{codingSchemeDesignator}": {
+      "post": {
+        "tags": [
+          "IOCM-RS"
+        ],
+        "summary": "Move Instances to Study",
+        "operationId": "MoveInstances",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "parameters": [
+          {
+            "name": "aet",
+            "in": "path",
+            "description": "Archive AE Title",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "studyUID",
+            "in": "path",
+            "description": "Unique Identifier of Target Study",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "codeValue",
+            "in": "path",
+            "description": "Code Value of Rejection Note",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "codingSchemeDesignator",
+            "in": "path",
+            "description": "Coding Scheme Designator of Rejection Note",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "instanceRefs",
+            "in": "body",
+            "description": "References to Source Instances",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/HierarchicalSOPInstanceReference"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "successful operation",
+            "schema": {
+              "type": "file"
+            }
+          },
+          "404": {
+            "description": "no such study"
           },
           "default": {
             "description": "unexpected error"
@@ -873,6 +1769,99 @@
         }
       }
     },
+    "/aets/{aet}/rs/studies/{studyUID}/expire/{expirationDate}": {
+      "put": {
+        "tags": [
+          "IOCM-RS"
+        ],
+        "summary": "Update Study Expiration Date",
+        "operationId": "updateStudyExpirationDate",
+        "parameters": [
+          {
+            "name": "aet",
+            "in": "path",
+            "description": "Archive AE Title",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "studyUID",
+            "in": "path",
+            "description": "Unique Identifier of the Study",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "expirationDate",
+            "in": "path",
+            "description": "ExpirationDate",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "successful operation"
+          },
+          "404": {
+            "description": "study not found"
+          },
+          "default": {
+            "description": "unexpected error"
+          }
+        }
+      }
+    },
+    "/aets/{aet}/rs/studies/{studyUID}/series/{seriesUID}/expire/{expirationDate}": {
+      "put": {
+        "tags": [
+          "IOCM-RS"
+        ],
+        "summary": "Update Series Expiration Date",
+        "operationId": "updateSeriesExpirationDate",
+        "parameters": [
+          {
+            "name": "aet",
+            "in": "path",
+            "description": "Archive AE Title",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "studyUID",
+            "in": "path",
+            "description": "Unique Identifier of the Study",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "seriesUID",
+            "in": "path",
+            "description": "Unique Identifier of the Series",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "expirationDate",
+            "in": "path",
+            "description": "ExpirationDate",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "successful operation"
+          },
+          "404": {
+            "description": "series not found"
+          },
+          "default": {
+            "description": "unexpected error"
+          }
+        }
+      }
+    },
     "/export": {
       "get": {
         "tags": [
@@ -908,6 +1897,14 @@
         "produces": [
           "application/json"
         ],
+        "parameters": [
+          {
+            "name": "dcmRevokeRejection",
+            "in": "query",
+            "description": "if true, return Rejection Note(s) used to revoke rejection; false if absent",
+            "type": "boolean"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Rejection Notes",
@@ -942,11 +1939,27 @@
             "description": "Coding Scheme Designator of Rejection Note",
             "required": true,
             "type": "string"
+          },
+          {
+            "name": "rejectedBefore",
+            "in": "query",
+            "description": "maximum reject date of instances to delete. Format: YYYY-MM-DD",
+            "type": "string",
+            "format": "date"
+          },
+          {
+            "name": "keepRejectionNote",
+            "in": "query",
+            "description": "if true, keep rejection note instances - only delete rejected instances; false if absent",
+            "type": "boolean"
           }
         ],
         "responses": {
-          "204": {
-            "description": "successful operation"
+          "200": {
+            "description": "successful operation",
+            "schema": {
+              "$ref": "#/definitions/Deleted"
+            }
           },
           "404": {
             "description": "no rejection note with specified codeValue and codingSchemeDesignator configured"
@@ -966,7 +1979,7 @@
         "roles"
       ],
       "properties": {
-        "status": {
+        "user": {
           "title": "user",
           "description": "user name",
           "type": "string"
@@ -998,6 +2011,28 @@
         }
       }
     },
+    "URL": {
+      "type": "object",
+      "required": [
+        "url"
+      ],
+      "properties": {
+        "url": {
+          "type": "string"
+        }
+      }
+    },
+    "DeviceName": {
+      "type": "object",
+      "required": [
+        "dicomDeviceName"
+      ],
+      "properties": {
+        "dicomDeviceName": {
+          "type": "string"
+        }
+      }
+    },
     "Deleted": {
       "type": "object",
       "required": [
@@ -1008,6 +2043,170 @@
           "title": "deleted",
           "description": "number of deleted messages",
           "type": "integer"
+        }
+      }
+    },
+    "Associations": {
+      "title": "Open Associations",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "serialNo",
+          "connectTime",
+          "requestor",
+          "localAETitle",
+          "remoteAETitle",
+          "performedOps",
+          "invokedOps"
+        ],
+        "properties": {
+          "serialNo": {
+            "title": "Serial No",
+            "description": "serial number of Association",
+            "type": "integer"
+          },
+          "connectTime": {
+            "title": "Connect Time",
+            "description": "Time when this Association was established",
+            "type": "string"
+          },
+          "initiated": {
+            "title": "Initiated",
+            "description": "Indicates if this Association was initiated or accepted by the Archive",
+            "type": "boolean"
+          },
+          "localAETitle": {
+            "title": "Local AE Title",
+            "description": "AE Title of the Archive used as Calling AE Title of requested or as Called AE Title in accepted Associations",
+            "type": "string"
+          },
+          "remoteAETitle": {
+            "title": "Remote AE Title",
+            "description": "AE Title of remote AE used as Called AE Title of requested or as Calling AE Title in accepted Associations",
+            "type": "string"
+          },
+          "performedOps": {
+            "title": "Performed Operations",
+            "description": "Performed Operations in this Association",
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/Operation"
+            }
+          },
+          "invokedOps": {
+            "title": "Invoked Operations",
+            "description": "Invoked Operations in this Association",
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/Operation"
+            }
+          },
+          "<other-property>": {
+            "title": "Other property",
+            "description": "Other property associated with this Associations",
+            "type": "string"
+          }
+        }
+      }
+    },
+    "Operation": {
+      "type": "object",
+      "properties": {
+        "C-STORE": {
+          "$ref": "#/definitions/RQ_RSP"
+        },
+        "C-GET": {
+          "$ref": "#/definitions/RQ_RSP"
+        },
+        "C-FIND": {
+          "$ref": "#/definitions/RQ_RSP"
+        },
+        "C-MOVE": {
+          "$ref": "#/definitions/RQ_RSP"
+        },
+        "C-ECHO": {
+          "$ref": "#/definitions/RQ_RSP"
+        },
+        "N-EVENT-REPORT": {
+          "$ref": "#/definitions/RQ_RSP"
+        },
+        "N-GET": {
+          "$ref": "#/definitions/RQ_RSP"
+        },
+        "N-SET": {
+          "$ref": "#/definitions/RQ_RSP"
+        },
+        "N-ACTION": {
+          "$ref": "#/definitions/RQ_RSP"
+        },
+        "N-CREATE": {
+          "$ref": "#/definitions/RQ_RSP"
+        },
+        "N-DELETE": {
+          "$ref": "#/definitions/RQ_RSP"
+        }
+      }
+    },
+    "RQ_RSP": {
+      "type": "object",
+      "required": [
+        "RQ",
+        "RSP"
+      ],
+      "properties": {
+        "RQ": {
+          "title": "RQ",
+          "description": "Number of received/sent DIMSE-RQ",
+          "type": "integer"
+        },
+        "RSP": {
+          "title": "RSP",
+          "description": "Number of sent/received DIMSE-RSP",
+          "type": "integer"
+        }
+      }
+    },
+    "HierarchicalSOPInstanceReference": {
+      "type": "object",
+      "required": [
+        "StudyInstanceUID"
+      ],
+      "properties": {
+        "StudyInstanceUID": {
+          "type": "string"
+        },
+        "ReferencedSeriesSequence": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "SeriesInstanceUID"
+            ],
+            "properties": {
+              "SeriesInstanceUID": {
+                "type": "string"
+              },
+              "ReferencedSOPSequence": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "ReferencedSOPClassUID",
+                    "ReferencedSOPInstanceUID"
+                  ],
+                  "properties": {
+                    "ReferencedSOPClassUID": {
+                      "type": "string"
+                    },
+                    "ReferencedSOPInstanceUID": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
         }
       }
     }

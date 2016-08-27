@@ -40,18 +40,23 @@
 
 package org.dcm4chee.arc.store;
 
+import org.dcm4che3.hl7.HL7Segment;
 import org.dcm4che3.net.ApplicationEntity;
 import org.dcm4che3.net.Association;
 import org.dcm4chee.arc.conf.ArchiveAEExtension;
 import org.dcm4chee.arc.entity.Series;
 import org.dcm4chee.arc.entity.Study;
+import org.dcm4chee.arc.entity.UIDMap;
 import org.dcm4chee.arc.storage.Storage;
 
 import javax.servlet.http.HttpServletRequest;
 import java.io.Closeable;
+import java.net.Socket;
+import java.util.Map;
 
 /**
  * @author Gunter Zeilinger <gunterze@gmail.com>
+ * @author Vrinda Nayak <vrinda.nayak@j4care.com>
  * @since Jul 2015
  */
 public interface StoreSession extends Closeable {
@@ -59,13 +64,17 @@ public interface StoreSession extends Closeable {
 
     HttpServletRequest getHttpRequest();
 
+    Socket getSocket();
+
+    HL7Segment getHL7MessageHeader();
+
     ApplicationEntity getLocalApplicationEntity();
 
     ArchiveAEExtension getArchiveAEExtension();
 
-    Storage getStorage();
+    Storage getStorage(String storageID);
 
-    void setStorage(Storage storage);
+    void putStorage(String storageID, Storage storage);
 
     String getCalledAET();
 
@@ -78,4 +87,10 @@ public interface StoreSession extends Closeable {
     Series getCachedSeries(String studyInstanceUID, String seriesIUID);
 
     void cacheSeries(Series series);
+
+    Map<Long, UIDMap> getUIDMapCache();
+
+    Map<String, String> getUIDMap();
+
+    void setUIDMap(Map<String, String> uidMap);
 }

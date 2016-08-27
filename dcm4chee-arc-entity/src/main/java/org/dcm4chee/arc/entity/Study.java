@@ -48,6 +48,8 @@ import org.dcm4che3.util.StringUtils;
 import org.dcm4chee.arc.conf.AttributeFilter;
 
 import javax.persistence.*;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
@@ -57,6 +59,7 @@ import java.util.Date;
  * @author Justin Falk <jfalkmu@gmail.com>
  * @author Gunter Zeilinger <gunterze@gmail.com>
  * @author Michael Backhaus <michael.backhaus@agfa.com>
+ * @author Vrinda Nayak <vrinda.nayak@j4care.com>
  */
 @NamedQueries({
 @NamedQuery(
@@ -79,12 +82,15 @@ import java.util.Date;
 @NamedQuery(
     name=Study.FIND_PK_BY_STORAGE_ID_ORDER_BY_ACCESS_TIME,
     query="select st.pk from Study st " +
-            "where st.scatteredStorage = false and exists ( " +
-            "select l from Location l where l.instance.series.study = st and l.storageID = ?1) " +
+            "where st.storageIDs = ?1 " +
             "order by st.accessTime"),
 @NamedQuery(
     name=Study.UPDATE_ACCESS_TIME,
     query="update Study st set st.accessTime = CURRENT_TIMESTAMP where st.pk = ?1"),
+@NamedQuery(
+    name=Study.SET_FAILED_SOP_INSTANCE_UID_LIST,
+    query="update Study st set st.failedSOPInstanceUIDList = ?2 " +
+            "where st.studyInstanceUID = ?1"),
 @NamedQuery(
     name=Study.INCREMENT_FAILED_RETRIEVES,
     query="update Study st set st.failedRetrieves = st.failedRetrieves + 1, st.failedSOPInstanceUIDList = ?2 " +
@@ -95,7 +101,15 @@ import java.util.Date;
 @NamedQuery(
     name=Study.COUNT_STUDIES_OF_PATIENT,
     query="select count(st) from Study st " +
-            "where st.patient = ?1")
+            "where st.patient = ?1"),
+@NamedQuery(
+    name=Study.GET_EXPIRED_STUDIES,
+    query="select st from Study st " +
+            "where st.expirationDate <= ?1"),
+@NamedQuery(
+    name = Study.FIND_BY_ACCESS_TIME_AND_ACCESS_CONTROL_ID,
+    query = "select st from Study st " +
+            "where st.accessControlID = ?1 and st.accessTime = ?2")
 })
 @Entity
 @Table(name = "study",
@@ -103,13 +117,18 @@ import java.util.Date;
     indexes = {
         @Index(columnList = "access_time"),
         @Index(columnList = "access_control_id"),
+        @Index(columnList = "rejection_state"),
+        @Index(columnList = "storage_ids"),
         @Index(columnList = "study_date"),
         @Index(columnList = "study_time"),
         @Index(columnList = "accession_no"),
         @Index(columnList = "study_desc"),
         @Index(columnList = "study_custom1"),
         @Index(columnList = "study_custom2"),
-        @Index(columnList = "study_custom3")
+        @Index(columnList = "study_custom3"),
+        @Index(columnList = "expiration_date"),
+        @Index(columnList = "failed_retrieves"),
+        @Index(columnList = "failed_iuids")
 })
 public class Study {
 
@@ -118,9 +137,12 @@ public class Study {
     public static final String FIND_BY_STUDY_IUID_EAGER = "Study.findByStudyIUIDEager";
     public static final String FIND_PK_BY_STORAGE_ID_ORDER_BY_ACCESS_TIME = "Study.findPkByStorageIDOrderByAccessTime";
     public static final String UPDATE_ACCESS_TIME = "Study.UpdateAccessTime";
+    public static final String SET_FAILED_SOP_INSTANCE_UID_LIST = "Study.SetFailedSOPInstanceUIDList";
     public static final String INCREMENT_FAILED_RETRIEVES = "Study.IncrementFailedRetrieves";
     public static final String CLEAR_FAILED_SOP_INSTANCE_UID_LIST = "Study.ClearFailedSOPInstanceUIDList";
     public static final String COUNT_STUDIES_OF_PATIENT = "Study.CountStudiesOfPatient";
+    public static final String GET_EXPIRED_STUDIES = "Study.GetExpiredStudies";
+    public static final String FIND_BY_ACCESS_TIME_AND_ACCESS_CONTROL_ID = "Study.FindByAccessTimeAndAccessControlID";
 
     @Id
     @GeneratedValue(strategy=GenerationType.IDENTITY)
@@ -147,10 +169,10 @@ public class Study {
     private Date accessTime;
 
     @Basic(optional = false)
-    @Column(name = "scattered_storage")
-    private boolean scatteredStorage;
+    @Column(name = "storage_ids")
+    private String storageIDs;
 
-    @Column(name = "failed_iuids")
+    @Column(name = "failed_iuids", length = 4000)
     private String failedSOPInstanceUIDList;
 
     @Basic(optional = false)
@@ -196,6 +218,14 @@ public class Study {
     @Basic(optional = false)
     @Column(name = "access_control_id")
     private String accessControlID = "*";
+
+    @Basic(optional = false)
+    @Column(name = "rejection_state")
+    private RejectionState rejectionState;
+
+    @Basic
+    @Column(name = "expiration_date")
+    private String expirationDate;
 
     @OneToOne(cascade = CascadeType.ALL, orphanRemoval = true, optional = false)
     @JoinColumn(name = "dicomattrs_fk")
@@ -265,12 +295,12 @@ public class Study {
         this.accessTime = accessTime;
     }
 
-    public boolean isScatteredStorage() {
-        return scatteredStorage;
+    public String getStorageIDs() {
+        return storageIDs;
     }
 
-    public void setScatteredStorage(boolean scatteredStorage) {
-        this.scatteredStorage = scatteredStorage;
+    public void setStorageIDs(String storageIDs) {
+        this.storageIDs = storageIDs;
     }
 
     public String getStudyInstanceUID() {
@@ -337,6 +367,30 @@ public class Study {
         this.accessControlID = StringUtils.maskNull(accessControlID, "*");
     }
 
+    public RejectionState getRejectionState() {
+        return rejectionState;
+    }
+
+    public void setRejectionState(RejectionState rejectionState) {
+        this.rejectionState = rejectionState;
+    }
+
+    public LocalDate getExpirationDate() {
+        return expirationDate != null ? LocalDate.parse(expirationDate) : null;
+    }
+
+    public void setExpirationDate(LocalDate expirationDate) {
+        this.expirationDate = expirationDate != null ? expirationDate.toString() : null;
+    }
+
+    public String getFailedSOPInstanceUIDList() {
+        return failedSOPInstanceUIDList;
+    }
+
+    public void setFailedSOPInstanceUIDList(String failedSOPInstanceUIDList) {
+        this.failedSOPInstanceUIDList = failedSOPInstanceUIDList;
+    }
+
     public Collection<CodeEntity> getProcedureCodes() {
         if (procedureCodes == null)
             procedureCodes = new ArrayList<>();
@@ -383,6 +437,4 @@ public class Study {
             attributesBlob.setAttributes(new Attributes(attrs, filter.getSelection()));
     }
 
-    public class COUNT_STUDIES_OF_PATIENT {
-    }
 }

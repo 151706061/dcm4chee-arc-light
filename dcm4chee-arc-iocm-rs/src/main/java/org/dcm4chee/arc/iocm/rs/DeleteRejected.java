@@ -51,14 +51,13 @@ import org.slf4j.LoggerFactory;
 import javax.enterprise.context.RequestScoped;
 import javax.inject.Inject;
 import javax.servlet.http.HttpServletRequest;
+import javax.validation.constraints.Pattern;
 import javax.ws.rs.*;
 import javax.ws.rs.core.Context;
 import javax.ws.rs.core.Response;
-import javax.ws.rs.core.StreamingOutput;
-import java.io.IOException;
-import java.io.OutputStream;
-import java.io.OutputStreamWriter;
-import java.io.Writer;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 
 /**
  * @author Gunter Zeilinger <gunterze@gmail.com>
@@ -79,19 +78,53 @@ public class DeleteRejected {
     @Context
     private HttpServletRequest request;
 
+    @QueryParam("rejectedBefore")
+    @Pattern(regexp = "(19|20)\\d{2}\\-\\d{2}\\-\\d{2}")
+    private String rejectedBefore;
+
+    @QueryParam("keepRejectionNote")
+    @Pattern(regexp = "true|false")
+    private String keepRejectionNote;
+
+    @Override
+    public String toString() {
+        String requestURI = request.getRequestURI();
+        String queryString = request.getQueryString();
+        return queryString == null ? requestURI : requestURI + '?' + queryString;
+    }
+
+    private Date parseDate(String s) {
+        try {
+            return s != null
+                    ? new SimpleDateFormat("yyyy-MM-dd").parse(s)
+                    : null;
+        } catch (ParseException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     @DELETE
     @Path("{CodeValue}^{CodingSchemeDesignator}")
-    public void query(
+    @Produces("application/json")
+    public String delete(
             @PathParam("CodeValue") String codeValue,
             @PathParam("CodingSchemeDesignator") String designator)
             throws Exception {
-        LOG.info("Process DELETE {} from {}@{}",
-                request.getRequestURI(), request.getRemoteUser(), request.getRemoteHost());
+        LOG.info("Process DELETE {} from {}@{}", this, request.getRemoteUser(), request.getRemoteHost());
         ArchiveDeviceExtension arcDev = device.getDeviceExtension(ArchiveDeviceExtension.class);
         Code code = new Code(codeValue, designator, null, "?");
         RejectionNote rjNote = arcDev.getRejectionNote(code);
         if (rjNote == null)
             throw new WebApplicationException("Unknown Rejection Note Code: " + code, Response.Status.NOT_FOUND);
-        service.deleteRejectedInstances(rjNote.getRejectionNoteCode(), arcDev.getDeleteRejectedFetchSize());
+
+        boolean keep = Boolean.parseBoolean(keepRejectionNote);
+        Date before = parseDate(rejectedBefore);
+        int fetchSize = arcDev.getDeleteRejectedFetchSize();
+        int deleted = service.deleteRejectedInstancesBefore(rjNote.getRejectionNoteCode(), before, fetchSize);
+        if (!Boolean.parseBoolean(keepRejectionNote))
+            deleted += service.deleteRejectionNotesBefore(rjNote.getRejectionNoteCode(), before, fetchSize);
+
+        LOG.info("Deleted {} instances permanently", deleted);
+        return "{\"deleted\":" + deleted + '}';
     }
 }

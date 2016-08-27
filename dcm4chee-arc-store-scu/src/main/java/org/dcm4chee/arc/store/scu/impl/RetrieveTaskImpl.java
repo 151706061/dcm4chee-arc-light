@@ -40,25 +40,23 @@
 
 package org.dcm4chee.arc.store.scu.impl;
 
-import org.dcm4che3.data.*;
+import org.dcm4che3.data.Attributes;
+import org.dcm4che3.data.Tag;
+import org.dcm4che3.data.VR;
 import org.dcm4che3.imageio.codec.Transcoder;
-import org.dcm4che3.io.TemplatesCache;
-import org.dcm4che3.io.XSLTAttributesCoercion;
 import org.dcm4che3.net.*;
 import org.dcm4che3.net.pdu.PresentationContext;
 import org.dcm4che3.net.service.RetrieveTask;
 import org.dcm4che3.util.SafeClose;
-import org.dcm4che3.util.StringUtils;
 import org.dcm4chee.arc.conf.ArchiveAEExtension;
-import org.dcm4chee.arc.conf.ArchiveAttributeCoercion;
 import org.dcm4chee.arc.conf.Duration;
 import org.dcm4chee.arc.retrieve.InstanceLocations;
 import org.dcm4chee.arc.retrieve.RetrieveContext;
+import org.dcm4chee.arc.retrieve.RetrieveService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.enterprise.event.Event;
-import javax.xml.transform.Templates;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -132,13 +130,14 @@ final class RetrieveTaskImpl implements RetrieveTask {
                 store(match);
             }
             waitForOutstandingCStoreRSP();
-            if (rqas != null)
-                writeFinalRSP();
         } finally {
             releaseStoreAssociation();
+            waitForPendingCMoveForward();
             stopWritePendingRSP();
-            if (rqas != null)
+            if (rqas != null) {
+                writeFinalRSP();
                 rqas.removeCancelRQHandler(msgId);
+            }
             SafeClose.close(ctx);
         }
         retrieveEnd.fire(ctx);
@@ -154,10 +153,11 @@ final class RetrieveTaskImpl implements RetrieveTask {
             if (tsuids.isEmpty()) {
                 throw new NoPresentationContextException(cuid);
             }
-            try (Transcoder transcoder = ctx.getRetrieveService().openTranscoder(ctx, inst, tsuids, false)) {
+            RetrieveService service = ctx.getRetrieveService();
+            try (Transcoder transcoder = service.openTranscoder(ctx, inst, tsuids, false)) {
                 String tsuid = transcoder.getDestinationTransferSyntax();
                 DataWriter data = new TranscoderDataWriter(transcoder,
-                        new MergeAttributesCoercion(inst.getAttributes(), coercion(cuid)));
+                        service.getAttributesCoercion(ctx, inst));
                 outstandingRSP.add(inst);
                 if (ctx.getMoveOriginatorAETitle() != null) {
                     storeas.cstore(cuid, iuid, priority,
@@ -170,21 +170,9 @@ final class RetrieveTaskImpl implements RetrieveTask {
             }
         } catch (Exception e) {
             outstandingRSP.remove(inst);
-            ctx.addFailedSOPInstanceUID(inst.getSopInstanceUID());
+            ctx.addFailedSOPInstanceUID(iuid);
             LOG.info("{}: failed to send {} to {}:", rqas, inst, ctx.getDestinationAETitle(), e);
         }
-    }
-
-    private AttributesCoercion coercion(String cuid) throws Exception {
-        ArchiveAttributeCoercion coercion = aeExt.findAttributeCoercion(
-                hostName, storeas.getRemoteAET(), TransferCapability.Role.SCP, Dimse.C_STORE_RQ, cuid);
-        if (coercion == null)
-            return null;
-        LOG.debug("{}: Apply {}", storeas, coercion);
-        String uri = StringUtils.replaceSystemProperties(coercion.getXSLTStylesheetURI());
-        Templates tpls = TemplatesCache.getDefault().get(uri);
-        return new XSLTAttributesCoercion(tpls, null)
-                .includeKeyword(!coercion.isNoKeywords());
     }
 
     private void writeFinalRSP() {
@@ -252,7 +240,27 @@ final class RetrieveTaskImpl implements RetrieveTask {
                     outstandingRSP.wait();
             }
         } catch (InterruptedException e) {
-            LOG.warn("{}: failed to wait for outstanding RSP on association to {}", rqas, storeas.getRemoteAET(), e);
+            LOG.warn("{}: failed to wait for outstanding C-STORE RSP(s) on association to {}",
+                    rqas, storeas.getRemoteAET(), e);
+        }
+    }
+
+    private void waitForPendingCMoveForward() {
+        Association fwdas = ctx.getForwardAssociation();
+        if (fwdas != null) {
+            LOG.info("{}: wait for outstanding C-MOVE RSP(s) for C-MOVE RQ(s) forwarded to {}",
+                    rqas, fwdas.getRemoteAET());
+            try {
+                fwdas.waitForOutstandingRSP();
+            } catch (InterruptedException e) {
+                LOG.warn("{}: failed to wait for outstanding C-MOVE RSP(s) for C-MOVE RQ(s) forwarded to {}",
+                        rqas, fwdas.getRemoteAET(), e);
+            }
+            try {
+                fwdas.release();
+            } catch (IOException e) {
+                LOG.warn("{}: failed to release association to {}", rqas, fwdas.getRemoteAET(), e);
+            }
         }
     }
 

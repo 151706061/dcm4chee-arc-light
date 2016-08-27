@@ -48,6 +48,7 @@ import org.dcm4che3.json.JSONWriter;
 import org.dcm4che3.net.ApplicationEntity;
 import org.dcm4che3.net.Device;
 import org.dcm4che3.net.service.QueryRetrieveLevel2;
+import org.dcm4chee.arc.query.util.AttributesBuilder;
 import org.dcm4che3.util.StringUtils;
 import org.dcm4che3.util.TagUtils;
 import org.dcm4che3.ws.rs.MediaTypes;
@@ -78,6 +79,7 @@ import java.util.Map;
 
 /**
  * @author Gunter Zeilinger <gunterze@gmail.com>
+ * @author Vrinda Nayak <vrinda.nayak@j4care.com>
  * @since Sep 2015
  */
 @RequestScoped
@@ -88,6 +90,13 @@ public class QidoRS {
     private static final Logger LOG = LoggerFactory.getLogger(QidoRS.class);
 
     private static ElementDictionary DICT = ElementDictionary.getStandardElementDictionary();
+
+    private final static int[] PATIENT_FIELDS = {
+            Tag.PatientName,
+            Tag.PatientID,
+            Tag.PatientBirthDate,
+            Tag.PatientSex,
+    };
 
     private final static int[] STUDY_FIELDS = {
             Tag.StudyDate,
@@ -126,6 +135,34 @@ public class QidoRS {
             Tag.NumberOfFrames
     };
 
+    private final static int[] MWL_FIELDS = {
+            Tag.AccessionNumber,
+            Tag.ReferringPhysicianName,
+            Tag.ReferencedStudySequence,
+            Tag.ReferencedPatientSequence,
+            Tag.PatientName,
+            Tag.PatientID,
+            Tag.PatientBirthDate,
+            Tag.PatientSex,
+            Tag.PatientWeight,
+            Tag.MedicalAlerts,
+            Tag.Allergies,
+            Tag.PregnancyStatus,
+            Tag.StudyInstanceUID,
+            Tag.RequestingPhysician,
+            Tag.RequestedProcedureDescription,
+            Tag.RequestedProcedureCodeSequence,
+            Tag.AdmissionID,
+            Tag.SpecialNeeds,
+            Tag.CurrentPatientLocation,
+            Tag.PatientState,
+            Tag.ScheduledProcedureStepSequence,
+            Tag.RequestedProcedureID,
+            Tag.RequestedProcedurePriority,
+            Tag.PatientTransportArrangements,
+            Tag.ConfidentialityConstraintOnPatientDataDescription
+    };
+
     private final static int[] STUDY_SERIES_FIELDS = catAndSort(STUDY_FIELDS, SERIES_FIELDS);
 
     private final static int[] STUDY_SERIES_INSTANCE_FIELDS = catAndSort(STUDY_SERIES_FIELDS, INSTANCE_FIELDS);
@@ -147,6 +184,14 @@ public class QidoRS {
     @PathParam("AETitle")
     private String aet;
 
+    @QueryParam("returnempty")
+    @Pattern(regexp = "true|false")
+    private String returnempty;
+
+    @QueryParam("expired")
+    @Pattern(regexp = "true|false")
+    private String expired;
+
     @QueryParam("fuzzymatching")
     @Pattern(regexp = "true|false")
     private String fuzzymatching;
@@ -159,41 +204,63 @@ public class QidoRS {
     @Pattern(regexp = "[1-9]\\d{0,4}")
     private String limit;
 
+    @QueryParam("withoutstudies")
+    @Pattern(regexp = "true|false")
+    private String withoutstudies;
+
+    @QueryParam("incomplete")
+    @Pattern(regexp = "true|false")
+    private String incomplete;
+
+    @QueryParam("retrievefailed")
+    @Pattern(regexp = "true|false")
+    private String retrievefailed;
+
     @Override
     public String toString() {
         return request.getRequestURI() + '?' + request.getQueryString();
     }
 
     @GET
+    @Path("/patients")
+    @Produces("multipart/related;type=application/dicom+xml")
+    public Response searchForPatientsXML() throws Exception {
+        return search("SearchForPatients", Model.PATIENT, null, null, PATIENT_FIELDS, Output.DICOM_XML);
+    }
+
+    @GET
+    @Path("/patients")
+    @Produces("application/json")
+    public Response searchForPatientsJSON() throws Exception {
+        return search("SearchForPatients", Model.PATIENT, null, null, PATIENT_FIELDS, Output.JSON);
+    }
+
+    @GET
     @Path("/studies")
     @Produces("multipart/related;type=application/dicom+xml")
     public Response searchForStudiesXML() throws Exception {
-        return search("searchForStudiesXML", QueryRetrieveLevel2.STUDY,
-                null, null, STUDY_FIELDS, Output.DICOM_XML);
+        return search("SearchForStudies", Model.STUDY, null, null, STUDY_FIELDS, Output.DICOM_XML);
     }
 
     @GET
     @Path("/studies")
     @Produces("application/json")
     public Response searchForStudiesJSON() throws Exception {
-        return search("searchForStudiesJSON", QueryRetrieveLevel2.STUDY,
-                null, null, STUDY_FIELDS, Output.JSON);
+        return search("SearchForStudies", Model.STUDY, null, null, STUDY_FIELDS, Output.JSON);
     }
 
     @GET
     @Path("/series")
     @Produces("multipart/related;type=application/dicom+xml")
     public Response searchForSeriesXML() throws Exception {
-        return search("searchForSeriesXML", QueryRetrieveLevel2.SERIES,
-                null, null, STUDY_SERIES_FIELDS, Output.DICOM_XML);
+        return search("SearchForSeries", Model.SERIES, null, null, STUDY_SERIES_FIELDS, Output.DICOM_XML);
     }
 
     @GET
     @Path("/series")
     @Produces("application/json")
     public Response searchForSeriesJSON() throws Exception {
-        return search("searchForSeriesJSON", QueryRetrieveLevel2.SERIES,
-                null, null, STUDY_SERIES_FIELDS, Output.JSON);
+        return search("SearchForSeries", Model.SERIES, null, null, STUDY_SERIES_FIELDS, Output.JSON);
     }
 
     @GET
@@ -201,8 +268,7 @@ public class QidoRS {
     @Produces("multipart/related;type=application/dicom+xml")
     public Response searchForSeriesOfStudyXML(
             @PathParam("StudyInstanceUID") String studyInstanceUID) throws Exception {
-        return search("searchForSeriesOfStudyXML", QueryRetrieveLevel2.SERIES,
-                studyInstanceUID, null, SERIES_FIELDS, Output.DICOM_XML);
+        return search("SearchForStudySeries", Model.SERIES, studyInstanceUID, null, SERIES_FIELDS, Output.DICOM_XML);
     }
 
     @GET
@@ -210,24 +276,21 @@ public class QidoRS {
     @Produces("application/json")
     public Response searchForSeriesOfStudyJSON(
             @PathParam("StudyInstanceUID") String studyInstanceUID) throws Exception {
-        return search("searchForSeriesOfStudyJSON", QueryRetrieveLevel2.SERIES,
-                studyInstanceUID, null, SERIES_FIELDS, Output.JSON);
+        return search("SearchForStudySeries", Model.SERIES, studyInstanceUID, null, SERIES_FIELDS, Output.JSON);
     }
 
     @GET
     @Path("/instances")
     @Produces("multipart/related;type=application/dicom+xml")
     public Response searchForInstancesXML() throws Exception {
-        return search("searchForInstancesXML", QueryRetrieveLevel2.IMAGE,
-                null, null, STUDY_SERIES_INSTANCE_FIELDS, Output.DICOM_XML);
+        return search("SearchForInstances", Model.INSTANCE, null, null, STUDY_SERIES_INSTANCE_FIELDS, Output.DICOM_XML);
     }
 
     @GET
     @Path("/instances")
     @Produces("application/json")
     public Response searchForInstancesJSON() throws Exception {
-        return search("searchForInstancesJSON", QueryRetrieveLevel2.IMAGE,
-                null, null, STUDY_SERIES_INSTANCE_FIELDS, Output.JSON);
+        return search("SearchForInstances", Model.INSTANCE, null, null, STUDY_SERIES_INSTANCE_FIELDS, Output.JSON);
     }
 
     @GET
@@ -235,7 +298,7 @@ public class QidoRS {
     @Produces("multipart/related;type=application/dicom+xml")
     public Response searchForInstancesOfStudyXML(
             @PathParam("StudyInstanceUID") String studyInstanceUID) throws Exception {
-        return search("searchForInstancesOfStudyXML", QueryRetrieveLevel2.IMAGE,
+        return search("SearchForStudyInstances", Model.INSTANCE,
                 studyInstanceUID, null, SERIES_INSTANCE_FIELDS, Output.DICOM_XML);
     }
 
@@ -244,7 +307,7 @@ public class QidoRS {
     @Produces("application/json")
     public Response searchForInstancesOfStudyJSON(
             @PathParam("StudyInstanceUID") String studyInstanceUID) throws Exception {
-        return search("searchForInstancesOfStudyJSON", QueryRetrieveLevel2.IMAGE,
+        return search("SearchForStudyInstances", Model.INSTANCE,
                 studyInstanceUID, null, SERIES_INSTANCE_FIELDS, Output.JSON);
     }
 
@@ -254,7 +317,7 @@ public class QidoRS {
     public Response searchForInstancesOfSeriesXML(
             @PathParam("StudyInstanceUID") String studyInstanceUID,
             @PathParam("SeriesInstanceUID") String seriesInstanceUID) throws Exception {
-        return search("searchForInstancesOfSeriesXML", QueryRetrieveLevel2.IMAGE,
+        return search("SearchForStudySeriesInstances", Model.INSTANCE,
                 studyInstanceUID, seriesInstanceUID, INSTANCE_FIELDS, Output.DICOM_XML);
     }
 
@@ -264,17 +327,31 @@ public class QidoRS {
     public Response searchForInstancesOfSeriesJSON(
             @PathParam("StudyInstanceUID") String studyInstanceUID,
             @PathParam("SeriesInstanceUID") String seriesInstanceUID) throws Exception {
-        return search("searchForInstancesOfSeriesJSON", QueryRetrieveLevel2.IMAGE,
+        return search("SearchForStudySeriesInstances", Model.INSTANCE,
                 studyInstanceUID, seriesInstanceUID, INSTANCE_FIELDS, Output.JSON);
     }
 
-    private Response search(String method, QueryRetrieveLevel2 qrlevel,
-                            String studyInstanceUID, String seriesInstanceUID, int[] includetags, Output output)
+    @GET
+    @Path("/mwlitems")
+    @Produces("multipart/related;type=application/dicom+xml")
+    public Response searchForSPSXML() throws Exception {
+        return search("SearchForSPS", Model.MWL, null, null, MWL_FIELDS, Output.DICOM_XML);
+    }
+
+    @GET
+    @Path("/mwlitems")
+    @Produces("application/json")
+    public Response searchForSPSJSON() throws Exception {
+        return search("SearchForSPS", Model.MWL, null, null, MWL_FIELDS, Output.JSON);
+    }
+
+    private Response search(String method, Model model, String studyInstanceUID, String seriesInstanceUID,
+                            int[] includetags, Output output)
             throws Exception {
         LOG.info("Process GET {} from {}@{}", this, request.getRemoteUser(), request.getRemoteHost());
         QueryAttributes queryAttrs = new QueryAttributes(uriInfo);
-        QueryContext ctx = newQueryContext(queryAttrs, studyInstanceUID, seriesInstanceUID, includetags);
-        Query query = service.createQuery(qrlevel, ctx);
+        QueryContext ctx = newQueryContext(method, queryAttrs, studyInstanceUID, seriesInstanceUID, includetags, model);
+        Query query = model.createQuery(service, ctx);
         try {
             query.initQuery();
             Response.Status status = Response.Status.OK;
@@ -297,22 +374,26 @@ public class QidoRS {
             if (limitInt > 0)
                 query.limit(limitInt);
 
-            query.orderBy(queryAttrs.getOrderSpecifiers(qrlevel));
+            query.orderBy(queryAttrs.getOrderSpecifiers(model));
 
             query.executeQuery();
             if (!query.hasMoreMatches())
                 return Response.ok().build();
 
-            return Response.status(status).entity(output.entity(this, method, query, qrlevel)).build();
+            return Response.status(status).entity(output.entity(this, method, query, model)).build();
         } finally {
             query.close();
         }
     }
 
-    private QueryContext newQueryContext(QueryAttributes queryAttrs, String studyInstanceUID,
-                                         String seriesInstanceUID, int[] includetags) {
-        QueryContext ctx = service.newQueryContextQIDO(
-                request, getApplicationEntity(), Boolean.parseBoolean(fuzzymatching));
+    private QueryContext newQueryContext(String method, QueryAttributes queryAttrs, String studyInstanceUID,
+                                         String seriesInstanceUID, int[] includetags, Model model) {
+        QueryContext ctx = service.newQueryContextQIDO(request, method, getApplicationEntity(),
+                Boolean.parseBoolean(fuzzymatching), Boolean.parseBoolean(returnempty), Boolean.parseBoolean(expired),
+                model == Model.SERIES && Boolean.parseBoolean(expired),
+                withoutstudies == null || Boolean.parseBoolean(withoutstudies),
+                Boolean.parseBoolean(incomplete), model == Model.SERIES && Boolean.parseBoolean(incomplete),
+                Boolean.parseBoolean(retrievefailed), model == Model.SERIES && Boolean.parseBoolean(retrievefailed));
         Attributes keys = queryAttrs.getQueryKeys();
         IDWithIssuer idWithIssuer = IDWithIssuer.pidOf(keys);
         if (idWithIssuer != null)
@@ -352,6 +433,7 @@ public class QidoRS {
     public static class QueryAttributes {
         private static final OrderSpecifier<?>[] EMPTY_ORDER_SPECIFIERS = new OrderSpecifier<?>[]{};
         private final Attributes keys = new Attributes();
+        private final AttributesBuilder builder = new AttributesBuilder(keys);
         private boolean includeAll;
         private final ArrayList<OrderByTag> orderByTags = new ArrayList<>();
         private boolean orderByPatientName;
@@ -360,12 +442,26 @@ public class QidoRS {
             MultivaluedMap<String, String> map = info.getQueryParameters();
             for (Map.Entry<String, List<String>> entry : map.entrySet()) {
                 String key = entry.getKey();
-                if (key.equals("includefield"))
-                    addIncludeTag(entry.getValue());
-                else if (key.equals("orderby"))
-                    addOrderByTag(entry.getValue());
-                else if (!key.equals("offset") && !key.equals("limit") && !key.equals("fuzzymatching"))
-                    addQueryKey(key, entry.getValue());
+                switch (key) {
+                    case "includefield":
+                        addIncludeTag(entry.getValue());
+                        break;
+                    case "orderby":
+                        addOrderByTag(entry.getValue());
+                        break;
+                    case "offset":
+                    case "limit":
+                    case "withoutstudies":
+                    case "fuzzymatching":
+                    case "returnempty":
+                    case "expired":
+                    case "retrievefailed":
+                    case "incomplete":
+                        break;
+                    default:
+                        addQueryKey(key, entry.getValue());
+                        break;
+                }
             }
         }
 
@@ -377,9 +473,7 @@ public class QidoRS {
                 }
                 for (String field : StringUtils.split(s, ',')) {
                     try {
-                        int[] tagPath = TagUtils.parseTagPath(field);
-                        int tag = tagPath[tagPath.length-1];
-                        nestedKeys(tagPath).setNull(tag, DICT.vrOf(tag));
+                        builder.setNull(field);
                     } catch (IllegalArgumentException e2) {
                         throw new IllegalArgumentException("includefield=" + s);
                     }
@@ -403,12 +497,12 @@ public class QidoRS {
             }
         }
 
-        public OrderSpecifier<?>[] getOrderSpecifiers(QueryRetrieveLevel2 qrlevel) {
+        public OrderSpecifier<?>[] getOrderSpecifiers(Model model) {
             if (orderByTags.isEmpty())
                 return EMPTY_ORDER_SPECIFIERS;
             ArrayList<OrderSpecifier<?>> list = new ArrayList<>(orderByTags.size());
             for (OrderByTag orderByTag : orderByTags)
-                QueryBuilder.addOrderSpecifier(qrlevel, orderByTag.tag, orderByTag.order, list);
+                model.addOrderSpecifier(orderByTag.tag, orderByTag.order, list);
             return list.toArray(EMPTY_ORDER_SPECIFIERS);
         }
 
@@ -446,49 +540,68 @@ public class QidoRS {
 
         private void addQueryKey(String attrPath, List<String> values) {
             try {
-                int[] tagPath = TagUtils.parseTagPath(attrPath);
-                int tag = tagPath[tagPath.length-1];
-                nestedKeys(tagPath).setString(tag, DICT.vrOf(tag),
-                        values.toArray(new String[values.size()]));
+                builder.setString(attrPath, values.toArray(new String[values.size()]));
             } catch (IllegalArgumentException e) {
                 throw new IllegalArgumentException(attrPath + "=" + values.get(0));
             }
         }
 
-        private Attributes nestedKeys(int[] tags) {
-            Attributes item = keys;
-            for (int i = 0; i < tags.length-1; i++) {
-                int tag = tags[i];
-                Sequence sq = item.getSequence(tag);
-                if (sq == null)
-                    sq = item.newSequence(tag, 1);
-                if (sq.isEmpty())
-                    sq.add(new Attributes());
-                item = sq.get(0);
+    }
+
+    private enum Model {
+        PATIENT(QueryRetrieveLevel2.PATIENT),
+        STUDY(QueryRetrieveLevel2.STUDY),
+        SERIES(QueryRetrieveLevel2.SERIES),
+        INSTANCE(QueryRetrieveLevel2.IMAGE),
+        MWL(null) {
+            @Override
+            Query createQuery(QueryService service, QueryContext ctx) {
+                return service.createMWLQuery(ctx);
             }
-            return item;
+
+            @Override
+            boolean addOrderSpecifier(int tag, Order order, List<OrderSpecifier<?>> result) {
+                return QueryBuilder.addMWLOrderSpecifier(tag, order, result);
+            }
+        };
+
+        final QueryRetrieveLevel2 qrLevel;
+
+        Model(QueryRetrieveLevel2 qrLevel) {
+            this.qrLevel = qrLevel;
         }
 
+        QueryRetrieveLevel2 getQueryRetrieveLevel() {
+            return qrLevel;
+        }
+
+        Query createQuery(QueryService service, QueryContext ctx) {
+            return service.createQuery(ctx, qrLevel);
+        }
+
+        boolean addOrderSpecifier(int tag, Order order, List<OrderSpecifier<?>> result) {
+            return QueryBuilder.addOrderSpecifier(qrLevel, tag, order, result);
+        }
     }
 
     private enum Output {
         DICOM_XML {
             @Override
-            Object entity(QidoRS service, String method, Query query, QueryRetrieveLevel2 qrlevel) {
-                return service.writeXML(method, query, qrlevel);
+            Object entity(QidoRS service, String method, Query query, Model model) {
+                return service.writeXML(method, query, model);
             }
         },
         JSON {
             @Override
-            Object entity(QidoRS service, String method, Query query, QueryRetrieveLevel2 qrlevel) {
-                return service.writeJSON(method, query, qrlevel);
+            Object entity(QidoRS service, String method, Query query, Model model) {
+                return service.writeJSON(method, query, model);
             }
         };
 
-        abstract Object entity(QidoRS service, String method, Query query, QueryRetrieveLevel2 qrlevel);
+        abstract Object entity(QidoRS service, String method, Query query, Model model);
     }
 
-    private Object writeXML(String method, Query query, QueryRetrieveLevel2 qrlevel) {
+    private Object writeXML(String method, Query query, Model model) {
         MultipartRelatedOutput output = new MultipartRelatedOutput();
         int count = 0;
         while (query.hasMoreMatches()) {
@@ -496,7 +609,7 @@ public class QidoRS {
             if (tmp == null)
                 continue;
 
-            final Attributes match = adjust(tmp, qrlevel, query);
+            final Attributes match = adjust(tmp, model, query);
             LOG.debug("{}: Match #{}:\n{}", method, ++count, match);
             output.addPart(
                     new StreamingOutput() {
@@ -516,14 +629,14 @@ public class QidoRS {
         return output;
     }
 
-    private Object writeJSON(String method, Query query, QueryRetrieveLevel2 qrlevel) {
+    private Object writeJSON(String method, Query query, Model model) {
         final ArrayList<Attributes> matches = new ArrayList<>();
         int count = 0;
         while (query.hasMoreMatches()) {
             Attributes tmp = query.nextMatch();
             if (tmp == null)
                 continue;
-            Attributes match = adjust(tmp, qrlevel, query);
+            Attributes match = adjust(tmp, model, query);
             LOG.debug("{}: Match #{}:\n{}", method, ++count, match);
             matches.add(match);
         }
@@ -531,30 +644,30 @@ public class QidoRS {
         return new StreamingOutput() {
             @Override
             public void write(OutputStream out) throws IOException {
-                try {
-                    JsonGenerator gen = Json.createGenerator(out);
+                try (JsonGenerator gen = Json.createGenerator(out)) {
                     JSONWriter writer = new JSONWriter(gen);
                     gen.writeStartArray();
-                    for (int i = 0, n=matches.size(); i < n; i++) {
-                        Attributes match = matches.get(i);
+                    for (Attributes match : matches) {
                         writer.write(match);
                     }
                     gen.writeEnd();
-                    gen.flush();
-                } catch (Exception e) {
-                    throw new WebApplicationException(e);
                 }
             }
         };
     }
 
-    private Attributes adjust(Attributes match, QueryRetrieveLevel2 qrlevel, Query query) {
+    private Attributes adjust(Attributes match, Model model, Query query) {
         match = query.adjust(match);
-        match.setString(Tag.RetrieveURL, VR.UR, retrieveURL(match, qrlevel));
+        switch(model) {
+            case STUDY:
+            case SERIES:
+            case INSTANCE:
+                match.setString(Tag.RetrieveURL, VR.UR, retrieveURL(match, model));
+        }
         return match;
     }
 
-    private String retrieveURL(Attributes match, QueryRetrieveLevel2 qrlevel) {
+    private String retrieveURL(Attributes match, Model model) {
         StringBuilder sb = new StringBuilder(256);
         sb.append(uriInfo.getBaseUri())
                 .append("aets/")
@@ -562,13 +675,13 @@ public class QidoRS {
                 .append("/rs/studies/")
                 .append(match.getString(Tag.StudyInstanceUID));
 
-        if (qrlevel == QueryRetrieveLevel2.STUDY)
+        if (model == Model.STUDY)
             return sb.toString();
 
         sb.append("/series/")
                 .append(match.getString(Tag.SeriesInstanceUID));
 
-        if (qrlevel == QueryRetrieveLevel2.SERIES)
+        if (model == Model.SERIES)
             return sb.toString();
 
         sb.append("/instances/")

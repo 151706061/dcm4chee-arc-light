@@ -52,7 +52,6 @@ import org.slf4j.LoggerFactory;
 
 import javax.enterprise.context.ApplicationScoped;
 import javax.inject.Inject;
-import java.util.Calendar;
 import java.util.Date;
 
 /**
@@ -69,6 +68,10 @@ public class DeleteRejectedInstancesScheduler extends Scheduler {
 
     @Inject
     private DeletionServiceEJB ejb;
+
+    protected DeleteRejectedInstancesScheduler() {
+        super(Mode.scheduleWithFixedDelay);
+    }
 
     @Override
     protected Logger log() {

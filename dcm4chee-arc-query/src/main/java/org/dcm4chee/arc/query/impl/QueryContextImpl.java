@@ -45,6 +45,7 @@ import org.dcm4che3.data.IDWithIssuer;
 import org.dcm4che3.net.ApplicationEntity;
 import org.dcm4che3.net.Association;
 import org.dcm4che3.net.QueryOption;
+import org.dcm4che3.net.service.QueryRetrieveLevel2;
 import org.dcm4chee.arc.code.CodeCache;
 import org.dcm4chee.arc.conf.ArchiveAEExtension;
 import org.dcm4chee.arc.conf.QueryRetrieveView;
@@ -70,11 +71,13 @@ class QueryContextImpl implements QueryContext {
     private Attributes returnKeys;
     private boolean orderByPatientName;
     private String sopClassUID;
+    private String searchMethod;
 
-    public QueryContextImpl(HttpServletRequest httpRequest, ApplicationEntity ae, QueryParam queryParam,
-                            QueryService queryService) {
+    public QueryContextImpl(HttpServletRequest httpRequest, String searchMethod, ApplicationEntity ae,
+                            QueryParam queryParam, QueryService queryService) {
         this(ae, queryParam, queryService);
         this.httpRequest = httpRequest;
+        this.searchMethod = searchMethod;
     }
 
     private QueryContextImpl(ApplicationEntity ae, QueryParam queryParam, QueryService queryService) {
@@ -98,6 +101,11 @@ class QueryContextImpl implements QueryContext {
     @Override
     public String getSOPClassUID() {
         return sopClassUID;
+    }
+
+    @Override
+    public String getSearchMethod() {
+        return searchMethod;
     }
 
     @Override

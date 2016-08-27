@@ -8,22 +8,15 @@ public class QueueDescriptor {
 
     private static final int DEFAULT_RETRY_DELAY = 60;
 
-    public void setQueueName(String queueName) {
-        this.queueName = queueName;
-    }
-
-    //    private final String queueName;
-    private  String queueName;
+    private String queueName;
     private String jndiName;
     private String description;
     private int maxRetries = 0;
     private Duration retryDelay;
     private Duration maxRetryDelay;
     private int retryDelayMultiplier = 100;
-
-//    public QueueDescriptor(String queueName) {
-//        this.queueName = queueName;
-//    }
+    private boolean retryOnWarning;
+    private Duration purgeQueueMessageCompletedDelay;
 
     public QueueDescriptor(String queueName) {
         setQueueName(queueName);
@@ -34,6 +27,10 @@ public class QueueDescriptor {
 
     public String getQueueName() {
         return queueName;
+    }
+
+    public void setQueueName(String queueName) {
+        this.queueName = queueName;
     }
 
     public String getJndiName() {
@@ -93,5 +90,21 @@ public class QueueDescriptor {
 
     public void setRetryDelayMultiplier(int retryDelayMultiplier) {
         this.retryDelayMultiplier = retryDelayMultiplier;
+    }
+
+    public boolean isRetryOnWarning() {
+        return retryOnWarning;
+    }
+
+    public void setRetryOnWarning(boolean retryOnWarning) {
+        this.retryOnWarning = retryOnWarning;
+    }
+
+    public Duration getPurgeQueueMessageCompletedDelay() {
+        return purgeQueueMessageCompletedDelay;
+    }
+
+    public void setPurgeQueueMessageCompletedDelay(Duration purgeQueueMessageCompletedDelay) {
+        this.purgeQueueMessageCompletedDelay = purgeQueueMessageCompletedDelay;
     }
 }

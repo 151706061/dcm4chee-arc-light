@@ -52,6 +52,7 @@ import org.dcm4che3.data.Attributes;
 import org.dcm4che3.data.Sequence;
 import org.dcm4che3.data.Tag;
 import org.dcm4che3.data.VR;
+import org.dcm4che3.dict.archive.ArchiveTag;
 import org.dcm4che3.util.StringUtils;
 import org.dcm4chee.arc.conf.Availability;
 import org.dcm4chee.arc.entity.*;
@@ -66,6 +67,7 @@ import java.util.*;
 
 /**
  * @author Gunter Zeilinger <gunterze@gmail.com>
+ * @author Vrinda Nayak <vrinda.nayak@j4care.com>
  *
  */
 @Stateless
@@ -73,6 +75,25 @@ public class QueryServiceEJB {
 
     static final Expression<?>[] PATIENT_STUDY_SERIES_ATTRS = {
         QStudy.study.pk,
+        QPatient.patient.numberOfStudies,
+        QPatient.patient.createdTime,
+        QPatient.patient.updatedTime,
+        QStudy.study.createdTime,
+        QStudy.study.updatedTime,
+        QStudy.study.accessTime,
+        QStudy.study.expirationDate,
+        QStudy.study.rejectionState,
+        QStudy.study.failedSOPInstanceUIDList,
+        QStudy.study.failedRetrieves,
+        QStudy.study.accessControlID,
+        QStudy.study.storageIDs,
+        QSeries.series.createdTime,
+        QSeries.series.updatedTime,
+        QSeries.series.expirationDate,
+        QSeries.series.rejectionState,
+        QSeries.series.failedSOPInstanceUIDList,
+        QSeries.series.failedRetrieves,
+        QSeries.series.sourceAET,
         QSeriesQueryAttributes.seriesQueryAttributes.numberOfInstances,
         QStudyQueryAttributes.studyQueryAttributes.numberOfInstances,
         QStudyQueryAttributes.studyQueryAttributes.numberOfSeries,
@@ -102,6 +123,7 @@ public class QueryServiceEJB {
             QSeries.series.seriesInstanceUID,
             QInstance.instance.sopInstanceUID,
             QInstance.instance.sopClassUID,
+            QInstance.instance.availability
     };
 
     static final Expression<?>[] PATIENT_STUDY_ATTRS = {
@@ -170,19 +192,72 @@ public class QueryServiceEJB {
         attrs.addAll(seriesAttrs);
         attrs.setString(Tag.ModalitiesInStudy, VR.CS, modalitiesInStudy);
         attrs.setString(Tag.SOPClassesInStudy, VR.UI, sopClassesInStudy);
+        attrs.setInt(Tag.NumberOfPatientRelatedStudies, VR.IS, result.get(QPatient.patient.numberOfStudies));
         attrs.setInt(Tag.NumberOfStudyRelatedSeries, VR.IS, numberOfStudyRelatedSeries);
         attrs.setInt(Tag.NumberOfStudyRelatedInstances, VR.IS, numberOfStudyRelatedInstances);
         attrs.setInt(Tag.NumberOfSeriesRelatedInstances, VR.IS, numberOfSeriesRelatedInstances);
+        attrs.setDate(ArchiveTag.PrivateCreator, ArchiveTag.PatientCreateDateTime, VR.DT,
+                result.get(QPatient.patient.createdTime));
+        attrs.setDate(ArchiveTag.PrivateCreator, ArchiveTag.PatientUpdateDateTime, VR.DT,
+                result.get(QPatient.patient.updatedTime));
+        attrs.setDate(ArchiveTag.PrivateCreator, ArchiveTag.StudyReceiveDateTime, VR.DT,
+                result.get(QStudy.study.createdTime));
+        attrs.setDate(ArchiveTag.PrivateCreator, ArchiveTag.StudyUpdateDateTime, VR.DT,
+                result.get(QStudy.study.updatedTime));
+        attrs.setDate(ArchiveTag.PrivateCreator, ArchiveTag.StudyAccessDateTime, VR.DT,
+                result.get(QStudy.study.accessTime));
+        if (result.get(QStudy.study.expirationDate) != null)
+            attrs.setString(ArchiveTag.PrivateCreator, ArchiveTag.StudyExpirationDate, VR.DA,
+                    result.get(QStudy.study.expirationDate));
+        attrs.setString(ArchiveTag.PrivateCreator, ArchiveTag.StudyRejectionState, VR.CS,
+                result.get(QStudy.study.rejectionState).toString());
+        if (result.get(QStudy.study.failedSOPInstanceUIDList) != null)
+            attrs.setString(ArchiveTag.PrivateCreator, ArchiveTag.MissingSOPInstanceUIDListOfStudy, VR.UI,
+                    result.get(QStudy.study.failedSOPInstanceUIDList));
+        if (result.get(QStudy.study.failedRetrieves) != 0)
+            attrs.setInt(ArchiveTag.PrivateCreator, ArchiveTag.FailedRetrievesOfStudy, VR.US,
+                    result.get(QStudy.study.failedRetrieves));
+        attrs.setString(ArchiveTag.PrivateCreator, ArchiveTag.StudyAccessControlID, VR.LO,
+                result.get(QStudy.study.accessControlID));
+        attrs.setString(ArchiveTag.PrivateCreator, ArchiveTag.StorageIDsOfStudy, VR.LO,
+                result.get(QStudy.study.storageIDs));
+        attrs.setDate(ArchiveTag.PrivateCreator, ArchiveTag.SeriesReceiveDateTime, VR.DT,
+                result.get(QSeries.series.createdTime));
+        attrs.setDate(ArchiveTag.PrivateCreator, ArchiveTag.SeriesUpdateDateTime, VR.DT,
+                result.get(QSeries.series.updatedTime));
+        if (result.get(QSeries.series.expirationDate) != null)
+            attrs.setString(ArchiveTag.PrivateCreator, ArchiveTag.SeriesExpirationDate, VR.DA,
+                    result.get(QSeries.series.expirationDate));
+        attrs.setString(ArchiveTag.PrivateCreator, ArchiveTag.SeriesRejectionState, VR.CS,
+                result.get(QSeries.series.rejectionState).toString());
+        if (result.get(QSeries.series.failedSOPInstanceUIDList) != null)
+            attrs.setString(ArchiveTag.PrivateCreator, ArchiveTag.MissingSOPInstanceUIDListOfSeries, VR.UI,
+                    result.get(QSeries.series.failedSOPInstanceUIDList));
+        if (result.get(QSeries.series.failedRetrieves) != 0)
+            attrs.setInt(ArchiveTag.PrivateCreator, ArchiveTag.FailedRetrievesOfSeries, VR.US,
+                    result.get(QSeries.series.failedRetrieves));
+        attrs.setString(ArchiveTag.PrivateCreator, ArchiveTag.SendingApplicationEntityOfSeries, VR.AE,
+                result.get(QSeries.series.sourceAET));
         return attrs;
     }
 
     public Attributes getStudyAttributesWithSOPInstanceRefs(
             String studyUID, String seriesUID, String objectUID, QueryParam queryParam,
-            Collection<Attributes> seriesAttrs) {
+            Collection<Attributes> seriesAttrs, boolean availability) {
         Attributes attrs = getStudyAttributes(studyUID);
         if (attrs == null)
             return null;
 
+        Attributes sopInstanceRefs = getSOPInstanceRefs(
+                studyUID, seriesUID, objectUID, queryParam, seriesAttrs, availability);
+        if (sopInstanceRefs != null)
+            attrs.newSequence(Tag.CurrentRequestedProcedureEvidenceSequence, 1).add(sopInstanceRefs);
+        return attrs;
+    }
+
+    public Attributes getSOPInstanceRefs(
+            String studyUID, String seriesUID, String objectUID, QueryParam queryParam,
+            Collection<Attributes> seriesAttrs, boolean availability) {
         BooleanBuilder predicate = new BooleanBuilder(QStudy.study.studyInstanceUID.eq(studyUID));
         if (seriesUID != null) {
             predicate.and(QSeries.series.seriesInstanceUID.eq(seriesUID));
@@ -199,10 +274,9 @@ public class QueryServiceEJB {
                 .fetch();
 
         if (tuples.isEmpty())
-            return attrs;
+            return null;
 
         Attributes refStudy = new Attributes(2);
-        attrs.newSequence(Tag.CurrentRequestedProcedureEvidenceSequence, 1).add(refStudy);
         Sequence refSeriesSeq = refStudy.newSequence(Tag.ReferencedSeriesSequence, 10);
         refStudy.setString(Tag.StudyInstanceUID, VR.UI, studyUID);
         HashMap<Long, Sequence> seriesMap = new HashMap<>();
@@ -219,15 +293,18 @@ public class QueryServiceEJB {
                 if (seriesAttrs != null)
                     seriesAttrs.add(getSeriesAttributes(seriesPk));
             }
-            Attributes refSOP = new Attributes(2);
+            Attributes refSOP = new Attributes(3);
+            if (availability)
+                refSOP.setString(Tag.InstanceAvailability, VR.CS,
+                        tuple.get(QInstance.instance.availability).toString());
             refSOP.setString(Tag.ReferencedSOPClassUID, VR.UI, tuple.get(QInstance.instance.sopClassUID));
             refSOP.setString(Tag.ReferencedSOPInstanceUID, VR.UI, tuple.get(QInstance.instance.sopInstanceUID));
             refSOPSeq.add(refSOP);
         }
-        return attrs;
+        return refStudy;
     }
 
-    private Attributes getStudyAttributes(String studyInstanceUID) {
+    public Attributes getStudyAttributes(String studyInstanceUID) {
         Tuple result = new HibernateQuery<Void>(em.unwrap(Session.class))
                 .select(PATIENT_STUDY_ATTRS)
                 .from(QStudy.study)

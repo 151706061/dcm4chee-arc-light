@@ -61,23 +61,29 @@ import java.util.Date;
  */
 @NamedQueries({
 @NamedQuery(
-    name=Instance.FIND_BY_SOP_IUID,
+    name=Instance.FIND_BY_SOP_IUID_EAGER,
     query="select i from Instance i " +
+            "join fetch i.series se " +
+            "join fetch se.study st " +
+            "join fetch st.patient p " +
+            "left join fetch p.patientID " +
+            "left join fetch p.patientName " +
+            "left join fetch st.referringPhysicianName " +
+            "left join fetch se.performingPhysicianName " +
+            "left join fetch i.conceptNameCode " +
+            "left join fetch i.rejectionNoteCode " +
+            "join fetch i.attributesBlob " +
+            "join fetch se.attributesBlob " +
+            "join fetch st.attributesBlob " +
+            "join fetch p.attributesBlob " +
             "where i.sopInstanceUID = ?1"),
-@NamedQuery(
-    name=Instance.FIND_BY_STUDY_SERIES_SOP_IUID,
-    query="select i from Instance i " +
-            "join i.series se " +
-            "join se.study st " +
-            "where st.studyInstanceUID = ?1 " +
-            "and se.seriesInstanceUID = ?2 " +
-            "and i.sopInstanceUID = ?3"),
 @NamedQuery(
     name=Instance.FIND_BY_STUDY_SERIES_SOP_IUID_EAGER,
     query="select i from Instance i " +
             "join fetch i.series se " +
             "join fetch se.study st " +
             "join fetch st.patient p " +
+            "left join fetch p.patientID " +
             "left join fetch p.patientName " +
             "left join fetch st.referringPhysicianName " +
             "left join fetch se.performingPhysicianName " +
@@ -90,6 +96,14 @@ import java.util.Date;
             "where st.studyInstanceUID = ?1 " +
             "and se.seriesInstanceUID = ?2 " +
             "and i.sopInstanceUID = ?3"),
+@NamedQuery(
+    name=Instance.COUNT_REJECTED_INSTANCES_OF_SERIES,
+    query="select count(i) from Instance i " +
+            "where i.series = ?1 and i.rejectionNoteCode is not null"),
+@NamedQuery(
+    name=Instance.COUNT_NOT_REJECTED_INSTANCES_OF_SERIES,
+    query="select count(i) from Instance i " +
+            "where i.series = ?1 and i.rejectionNoteCode is null"),
 @NamedQuery(
     name=Instance.COUNT_INSTANCES_OF_SERIES,
     query="select count(i) from Instance i " +
@@ -113,10 +127,11 @@ import java.util.Date;
     })
 public class Instance {
 
-    public static final String FIND_BY_SOP_IUID = "Instance.findBySopIUID";
-    public static final String FIND_BY_STUDY_SERIES_SOP_IUID = "Instance.findByStudySeriesSopIUID";
+    public static final String FIND_BY_SOP_IUID_EAGER = "Instance.findBySopIUIDEager";
     public static final String FIND_BY_STUDY_SERIES_SOP_IUID_EAGER = "Instance.findByStudySeriesSopIUIDEager";
     public static final String COUNT_INSTANCES_OF_SERIES = "Instance.countInstancesOfSeries";
+    public static final String COUNT_REJECTED_INSTANCES_OF_SERIES = "Instance.countRejectedInstancesOfSeries";
+    public static final String COUNT_NOT_REJECTED_INSTANCES_OF_SERIES = "Instance.countNotRejectedInstancesOfSeries";
 
     @Id
     @GeneratedValue(strategy=GenerationType.IDENTITY)
@@ -147,7 +162,7 @@ public class Instance {
 
     @Basic(optional = false)
     @Column(name = "inst_no")
-    private String instanceNumber;
+    private Integer instanceNumber;
 
     @Basic(optional = false)
     @Column(name = "content_date")
@@ -204,6 +219,9 @@ public class Instance {
     @JoinColumn(name = "instance_fk")
     private Collection<ContentItem> contentItems;
 
+    @OneToMany(mappedBy = "instance")
+    private Collection<Location> locations;
+
     @ManyToOne(optional = false, fetch = FetchType.LAZY)
     @JoinColumn(name = "series_fk")
     private Series series;
@@ -249,7 +267,7 @@ public class Instance {
         return sopClassUID;
     }
 
-    public String getInstanceNumber() {
+    public Integer getInstanceNumber() {
         return instanceNumber;
     }
 
@@ -337,6 +355,12 @@ public class Instance {
         return contentItems;
     }
 
+    public Collection<Location> getLocations() {
+        if (locations == null)
+            locations = new ArrayList<>();
+        return locations;
+    }
+
     public Series getSeries() {
         return series;
     }
@@ -352,7 +376,7 @@ public class Instance {
     public void setAttributes(Attributes attrs, AttributeFilter filter, FuzzyStr fuzzyStr) {
         sopInstanceUID = attrs.getString(Tag.SOPInstanceUID);
         sopClassUID = attrs.getString(Tag.SOPClassUID);
-        instanceNumber = attrs.getString(Tag.InstanceNumber, "*");
+        instanceNumber = getInstanceNumberAsInteger(attrs.getString(Tag.InstanceNumber));
         Date dt = attrs.getDate(Tag.ContentDateAndTime);
         if (dt != null) {
             contentDate = DateUtils.formatDA(null, dt);
@@ -378,5 +402,15 @@ public class Instance {
             attributesBlob = new AttributesBlob(new Attributes(attrs, filter.getSelection()));
         else
             attributesBlob.setAttributes(new Attributes(attrs, filter.getSelection()));
+    }
+
+    private Integer getInstanceNumberAsInteger(String instanceNumber) {
+        if (instanceNumber == null)
+            return null;
+        try {
+            return Integer.parseInt(instanceNumber);
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 }

@@ -73,6 +73,10 @@ public class AuditScheduler extends Scheduler {
     @Inject
     private AuditService service;
 
+    protected AuditScheduler() {
+        super(Mode.scheduleWithFixedDelay);
+    }
+
     @Override
     protected Logger log() {
         return LOG;
@@ -102,7 +106,7 @@ public class AuditScheduler extends Scheduler {
             try (DirectoryStream<Path> dirStream = Files.newDirectoryStream(dir, new DirectoryStream.Filter<Path>() {
                 @Override
                 public boolean accept(Path file) throws IOException {
-                    return !file.endsWith(FAILED)
+                    return !file.getFileName().toString().endsWith(FAILED)
                             && Files.getLastModifiedTime(file).toMillis() <= maxLastModifiedTime;
                 }
             })) {

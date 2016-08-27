@@ -75,7 +75,6 @@ class Assert {
         assertEquals(expected.getOverwritePolicy(), actual.getOverwritePolicy());
         assertEquals(expected.getQueryRetrieveViewID(), actual.getQueryRetrieveViewID());
         assertEquals(expected.getBulkDataSpoolDirectory(), actual.getBulkDataSpoolDirectory());
-        assertEquals(expected.getQueryMatchUnknown(), actual.getQueryMatchUnknown());
         assertEquals(expected.getPersonNameComponentOrderInsensitiveMatching(), actual.getPersonNameComponentOrderInsensitiveMatching());
         assertEquals(expected.getSendPendingCGet(), actual.getSendPendingCGet());
         assertEquals(expected.getSendPendingCMoveInterval(), actual.getSendPendingCMoveInterval());
@@ -85,7 +84,6 @@ class Assert {
         assertArrayEquals(expected.getMppsForwardDestinations(), actual.getMppsForwardDestinations());
         assertEquals(expected.getFallbackCMoveSCP(), actual.getFallbackCMoveSCP());
         assertEquals(expected.getFallbackCMoveSCPDestination(), actual.getFallbackCMoveSCPDestination());
-        assertEquals(expected.getFallbackCMoveSCPLevel(), actual.getFallbackCMoveSCPLevel());
         assertEquals(expected.getAlternativeCMoveSCP(), actual.getAlternativeCMoveSCP());
     }
 
@@ -96,7 +94,6 @@ class Assert {
         assertEquals(expected.getOverwritePolicy(), actual.getOverwritePolicy());
         assertEquals(expected.getQueryRetrieveViewID(), actual.getQueryRetrieveViewID());
         assertEquals(expected.getBulkDataSpoolDirectory(), actual.getBulkDataSpoolDirectory());
-        assertEquals(expected.isQueryMatchUnknown(), actual.isQueryMatchUnknown());
         assertEquals(expected.isPersonNameComponentOrderInsensitiveMatching(), actual.isPersonNameComponentOrderInsensitiveMatching());
         assertEquals(expected.isSendPendingCGet(), actual.isSendPendingCGet());
         assertEquals(expected.getSendPendingCMoveInterval(), actual.getSendPendingCMoveInterval());
@@ -107,7 +104,6 @@ class Assert {
         assertArrayEquals(expected.getMppsForwardDestinations(), actual.getMppsForwardDestinations());
         assertEquals(expected.getFallbackCMoveSCP(), actual.getFallbackCMoveSCP());
         assertEquals(expected.getFallbackCMoveSCPDestination(), actual.getFallbackCMoveSCPDestination());
-        assertEquals(expected.getFallbackCMoveSCPLevel(), actual.getFallbackCMoveSCPLevel());
         assertEquals(expected.getAlternativeCMoveSCP(), actual.getAlternativeCMoveSCP());
         assertEquals(expected.getExportTaskPollingInterval(), actual.getExportTaskPollingInterval());
         assertEquals(expected.getExportTaskFetchSize(), actual.getExportTaskFetchSize());

@@ -41,25 +41,27 @@
 package org.dcm4chee.arc.conf;
 
 import org.dcm4che3.data.Code;
+import java.time.LocalTime;
 import org.dcm4che3.net.DeviceExtension;
 import org.dcm4che3.soundex.FuzzyStr;
 import org.dcm4che3.util.StringUtils;
 
 import java.util.*;
+import java.util.regex.Pattern;
 
 /**
  * @author Gunter Zeilinger <gunterze@gmail.com>
+ * @author Vrinda Nayak <vrinda.nayak@j4care.com>
  * @since Jul 2015
  */
 public class ArchiveDeviceExtension extends DeviceExtension {
 
     private String fuzzyAlgorithmClass;
-
     private String storageID;
+    private String metadataStorageID;
     private OverwritePolicy overwritePolicy;
     private String bulkDataSpoolDirectory;
     private String queryRetrieveViewID;
-    private boolean queryMatchUnknown = true;
     private boolean sendPendingCGet = false;
     private Duration sendPendingCMoveInterval;
     private boolean personNameComponentOrderInsensitiveMatching = false;
@@ -67,11 +69,18 @@ public class ArchiveDeviceExtension extends DeviceExtension {
     private String wadoSR2HtmlTemplateURI;
     private String wadoSR2TextTemplateURI;
     private String patientUpdateTemplateURI;
+    private String importReportTemplateURI;
+    private String scheduleProcedureTemplateURI;
     private String unzipVendorDataToURI;
     private String[] mppsForwardDestinations = {};
+    private String[] ianDestinations = {};
+    private Duration ianDelay;
+    private Duration ianTimeout;
+    private boolean ianOnTimeout;
+    private Duration ianTaskPollingInterval;
+    private int ianTaskFetchSize = 100;
     private String fallbackCMoveSCP;
     private String fallbackCMoveSCPDestination;
-    private MoveForwardLevel fallbackCMoveSCPLevel;
     private int fallbackCMoveSCPRetries;
     private String alternativeCMoveSCP;
     private Duration exportTaskPollingInterval;
@@ -83,19 +92,46 @@ public class ArchiveDeviceExtension extends DeviceExtension {
     private int deleteStudyBatchSize = 10;
     private boolean deletePatientOnDeleteLastStudy = false;
     private Duration maxAccessTimeStaleness;
+    private Duration aeCacheStaleTimeout;
+    private Duration leadingCFindSCPQueryCacheStaleTimeout;
+    private int leadingCFindSCPQueryCacheSize = 10;
     private String auditSpoolDirectory;
     private Duration auditPollingInterval;
     private Duration auditAggregateDuration;
+    private String stowSpoolDirectory;
+    private String wadoSpoolDirectory;
+    private Duration purgeQueueMessagePollingInterval;
+    private int purgeQueueMessageFetchSize = 100;
+    private SPSStatus[] hideSPSWithStatusFrom = {};
+    private String hl7LogFilePattern;
+    private String hl7ErrorLogFilePattern;
+    private Duration rejectExpiredStudiesPollingInterval;
+    private LocalTime rejectExpiredStudiesPollingStartTime;
+    private int rejectExpiredStudiesFetchSize = 0;
+    private int rejectExpiredSeriesFetchSize = 0;
+    private String rejectExpiredStudiesAETitle;
+    private String fallbackCMoveSCPStudyOlderThan;
+    private String storePermissionServiceURL;
+    private Pattern storePermissionServiceResponsePattern;
+    private Duration storePermissionCacheStaleTimeout;
+    private int storePermissionCacheSize = 10;
+    private int storeUpdateDBMaxRetries = 1;
+    private AllowRejectionForDataRetentionPolicyExpired allowRejectionForDataRetentionPolicyExpired;
+    private AcceptMissingPatientID acceptMissingPatientID;
+    private AllowDeleteStudyPermanently allowDeleteStudyPermanently;
 
     private final HashSet<String> wadoSupportedSRClasses = new HashSet<>();
     private final EnumMap<Entity,AttributeFilter> attributeFilters = new EnumMap<>(Entity.class);
+    private final EnumMap<IDGenerator.Name,IDGenerator> idGenerators = new EnumMap<>(IDGenerator.Name.class);
     private QueryRetrieveView[] queryRetrieveViews = {};
     private final Map<String, StorageDescriptor> storageDescriptorMap = new HashMap<>();
     private final Map<String, QueueDescriptor> queueDescriptorMap = new HashMap<>();
     private final Map<String, ExporterDescriptor> exporterDescriptorMap = new HashMap<>();
     private final Map<String, RejectionNote> rejectionNoteMap = new HashMap<>();
     private final ArrayList<ExportRule> exportRules = new ArrayList<>();
+    private final ArrayList<HL7ForwardRule> hl7ForwardRules = new ArrayList<>();
     private final ArrayList<ArchiveCompressionRule> compressionRules = new ArrayList<>();
+    private final ArrayList<StudyRetentionPolicy> studyRetentionPolicies = new ArrayList<>();
 
     private final ArrayList<ArchiveAttributeCoercion> attributeCoercions = new ArrayList<>();
     private transient FuzzyStr fuzzyStr;
@@ -136,6 +172,14 @@ public class ArchiveDeviceExtension extends DeviceExtension {
         this.overwritePolicy = overwritePolicy;
     }
 
+    public AcceptMissingPatientID getAcceptMissingPatientID() {
+        return acceptMissingPatientID;
+    }
+
+    public void setAcceptMissingPatientID(AcceptMissingPatientID acceptMissingPatientID) {
+        this.acceptMissingPatientID = acceptMissingPatientID;
+    }
+
     public String getBulkDataSpoolDirectory() {
         return bulkDataSpoolDirectory;
     }
@@ -152,20 +196,20 @@ public class ArchiveDeviceExtension extends DeviceExtension {
         this.storageID = storageID;
     }
 
+    public String getMetadataStorageID() {
+        return metadataStorageID;
+    }
+
+    public void setMetadataStorageID(String metadataStorageID) {
+        this.metadataStorageID = metadataStorageID;
+    }
+
     public String getQueryRetrieveViewID() {
         return queryRetrieveViewID;
     }
 
     public void setQueryRetrieveViewID(String queryRetrieveViewID) {
         this.queryRetrieveViewID = queryRetrieveViewID;
-    }
-
-    public boolean isQueryMatchUnknown() {
-        return queryMatchUnknown;
-    }
-
-    public void setQueryMatchUnknown(boolean queryMatchUnknown) {
-        this.queryMatchUnknown = queryMatchUnknown;
     }
 
     public boolean isPersonNameComponentOrderInsensitiveMatching() {
@@ -229,6 +273,22 @@ public class ArchiveDeviceExtension extends DeviceExtension {
         this.patientUpdateTemplateURI = patientUpdateTemplateURI;
     }
 
+    public String getImportReportTemplateURI() {
+        return importReportTemplateURI;
+    }
+
+    public void setImportReportTemplateURI(String importReportTemplateURI) {
+        this.importReportTemplateURI = importReportTemplateURI;
+    }
+
+    public String getScheduleProcedureTemplateURI() {
+        return scheduleProcedureTemplateURI;
+    }
+
+    public void setScheduleProcedureTemplateURI(String scheduleProcedureTemplateURI) {
+        this.scheduleProcedureTemplateURI = scheduleProcedureTemplateURI;
+    }
+
     public String getUnzipVendorDataToURI() {
         return unzipVendorDataToURI;
     }
@@ -245,6 +305,54 @@ public class ArchiveDeviceExtension extends DeviceExtension {
         this.mppsForwardDestinations = mppsForwardDestinations;
     }
 
+    public String[] getIanDestinations() {
+        return ianDestinations;
+    }
+
+    public void setIanDestinations(String... ianDestinations) {
+        this.ianDestinations = ianDestinations;
+    }
+
+    public Duration getIanDelay() {
+        return ianDelay;
+    }
+
+    public void setIanDelay(Duration ianDelay) {
+        this.ianDelay = ianDelay;
+    }
+
+    public Duration getIanTimeout() {
+        return ianTimeout;
+    }
+
+    public void setIanTimeout(Duration ianTimeout) {
+        this.ianTimeout = ianTimeout;
+    }
+
+    public boolean isIanOnTimeout() {
+        return ianOnTimeout;
+    }
+
+    public void setIanOnTimeout(boolean ianOnTimeout) {
+        this.ianOnTimeout = ianOnTimeout;
+    }
+
+    public Duration getIanTaskPollingInterval() {
+        return ianTaskPollingInterval;
+    }
+
+    public void setIanTaskPollingInterval(Duration ianTaskPollingInterval) {
+        this.ianTaskPollingInterval = ianTaskPollingInterval;
+    }
+
+    public int getIanTaskFetchSize() {
+        return ianTaskFetchSize;
+    }
+
+    public void setIanTaskFetchSize(int ianTaskFetchSize) {
+        this.ianTaskFetchSize = ianTaskFetchSize;
+    }
+
     public String getFallbackCMoveSCP() {
         return fallbackCMoveSCP;
     }
@@ -259,14 +367,6 @@ public class ArchiveDeviceExtension extends DeviceExtension {
 
     public void setFallbackCMoveSCPDestination(String fallbackCMoveSCPDestination) {
         this.fallbackCMoveSCPDestination = fallbackCMoveSCPDestination;
-    }
-
-    public MoveForwardLevel getFallbackCMoveSCPLevel() {
-        return fallbackCMoveSCPLevel;
-    }
-
-    public void setFallbackCMoveSCPLevel(MoveForwardLevel fallbackCMoveSCPLevel) {
-        this.fallbackCMoveSCPLevel = fallbackCMoveSCPLevel;
     }
 
     public int getFallbackCMoveSCPRetries() {
@@ -365,6 +465,42 @@ public class ArchiveDeviceExtension extends DeviceExtension {
         this.maxAccessTimeStaleness = maxAccessTimeStaleness;
     }
 
+    public Duration getAECacheStaleTimeout() {
+        return aeCacheStaleTimeout;
+    }
+
+    public void setAECacheStaleTimeout(Duration aeCacheStaleTimeout) {
+        this.aeCacheStaleTimeout = aeCacheStaleTimeout;
+    }
+
+    public int getAECacheStaleTimeoutSeconds() {
+        return toSeconds(aeCacheStaleTimeout);
+    }
+
+    public Duration getLeadingCFindSCPQueryCacheStaleTimeout() {
+        return leadingCFindSCPQueryCacheStaleTimeout;
+    }
+
+    public void setLeadingCFindSCPQueryCacheStaleTimeout(Duration leadingCFindSCPQueryCacheStaleTimeout) {
+        this.leadingCFindSCPQueryCacheStaleTimeout = leadingCFindSCPQueryCacheStaleTimeout;
+    }
+
+    public int getLeadingCFindSCPQueryCacheStaleTimeoutSeconds() {
+        return toSeconds(leadingCFindSCPQueryCacheStaleTimeout);
+    }
+
+    private static int toSeconds(Duration timeout) {
+        return timeout != null ? (int) timeout.getSeconds() : 0;
+    }
+
+    public int getLeadingCFindSCPQueryCacheSize() {
+        return leadingCFindSCPQueryCacheSize;
+    }
+
+    public void setLeadingCFindSCPQueryCacheSize(int leadingCFindSCPQueryCacheSize) {
+        this.leadingCFindSCPQueryCacheSize = leadingCFindSCPQueryCacheSize;
+    }
+
     public String getAuditSpoolDirectory() {
         return auditSpoolDirectory;
     }
@@ -393,12 +529,200 @@ public class ArchiveDeviceExtension extends DeviceExtension {
         return auditSpoolDirectory != null && auditPollingInterval != null && auditAggregateDuration != null;
     }
 
+    public String getStowSpoolDirectory() {
+        return stowSpoolDirectory;
+    }
+
+    public void setStowSpoolDirectory(String stowSpoolDirectory) {
+        this.stowSpoolDirectory = stowSpoolDirectory;
+    }
+
+    public String getWadoSpoolDirectory() {
+        return wadoSpoolDirectory;
+    }
+
+    public void setWadoSpoolDirectory(String wadoSpoolDirectory) {
+        this.wadoSpoolDirectory = wadoSpoolDirectory;
+    }
+
+    public String getHl7LogFilePattern() {
+        return hl7LogFilePattern;
+    }
+
+    public void setHl7LogFilePattern(String hl7LogFilePattern) {
+        this.hl7LogFilePattern = hl7LogFilePattern;
+    }
+
+    public String getHl7ErrorLogFilePattern() {
+        return hl7ErrorLogFilePattern;
+    }
+
+    public void setHl7ErrorLogFilePattern(String hl7ErrorLogFilePattern) {
+        this.hl7ErrorLogFilePattern = hl7ErrorLogFilePattern;
+    }
+
+    public int getRejectExpiredStudiesFetchSize() {
+        return rejectExpiredStudiesFetchSize;
+    }
+
+    public void setRejectExpiredStudiesFetchSize(int rejectExpiredStudiesFetchSize) {
+        this.rejectExpiredStudiesFetchSize = rejectExpiredStudiesFetchSize;
+    }
+
+    public int getRejectExpiredSeriesFetchSize() {
+        return rejectExpiredSeriesFetchSize;
+    }
+
+    public void setRejectExpiredSeriesFetchSize(int rejectExpiredSeriesFetchSize) {
+        this.rejectExpiredSeriesFetchSize = rejectExpiredSeriesFetchSize;
+    }
+
+    public Duration getRejectExpiredStudiesPollingInterval() {
+        return rejectExpiredStudiesPollingInterval;
+    }
+
+    public void setRejectExpiredStudiesPollingInterval(Duration rejectExpiredStudiesPollingInterval) {
+        this.rejectExpiredStudiesPollingInterval = rejectExpiredStudiesPollingInterval;
+    }
+
+    public LocalTime getRejectExpiredStudiesPollingStartTime() {
+        return rejectExpiredStudiesPollingStartTime;
+    }
+
+    public void setRejectExpiredStudiesPollingStartTime(LocalTime rejectExpiredStudiesPollingStartTime) {
+        this.rejectExpiredStudiesPollingStartTime = rejectExpiredStudiesPollingStartTime;
+    }
+
+    public String getRejectExpiredStudiesAETitle() {
+        return rejectExpiredStudiesAETitle;
+    }
+
+    public void setRejectExpiredStudiesAETitle(String rejectExpiredStudiesAETitle) {
+        this.rejectExpiredStudiesAETitle = rejectExpiredStudiesAETitle;
+    }
+
+    public String getFallbackCMoveSCPStudyOlderThan() {
+        return fallbackCMoveSCPStudyOlderThan;
+    }
+
+    public void setFallbackCMoveSCPStudyOlderThan(String fallbackCMoveSCPStudyOlderThan) {
+        this.fallbackCMoveSCPStudyOlderThan = fallbackCMoveSCPStudyOlderThan;
+    }
+
+    public Duration getPurgeQueueMessagePollingInterval() {
+        return purgeQueueMessagePollingInterval;
+    }
+
+    public void setPurgeQueueMessagePollingInterval(Duration purgeQueueMessagePollingInterval) {
+        this.purgeQueueMessagePollingInterval = purgeQueueMessagePollingInterval;
+    }
+
+    public int getPurgeQueueMessageFetchSize() {
+        return purgeQueueMessageFetchSize;
+    }
+
+    public void setPurgeQueueMessageFetchSize(int purgeQueueMessageFetchSize) {
+        this.purgeQueueMessageFetchSize = purgeQueueMessageFetchSize;
+    }
+
+    public SPSStatus[] getHideSPSWithStatusFrom() {
+        return hideSPSWithStatusFrom;
+    }
+
+    public void setHideSPSWithStatusFrom(SPSStatus[] hideSPSWithStatusFrom) {
+        this.hideSPSWithStatusFrom = hideSPSWithStatusFrom;
+    }
+
+    public String getStorePermissionServiceURL() {
+        return storePermissionServiceURL;
+    }
+
+    public void setStorePermissionServiceURL(String storePermissionServiceURL) {
+        this.storePermissionServiceURL = storePermissionServiceURL;
+    }
+
+    public Pattern getStorePermissionServiceResponsePattern() {
+        return storePermissionServiceResponsePattern;
+    }
+
+    public void setStorePermissionServiceResponsePattern(Pattern storePermissionServiceResponsePattern) {
+        this.storePermissionServiceResponsePattern = storePermissionServiceResponsePattern;
+    }
+
+    public Duration getStorePermissionCacheStaleTimeout() {
+        return storePermissionCacheStaleTimeout;
+    }
+
+    public void setStorePermissionCacheStaleTimeout(Duration storePermissionCacheStaleTimeout) {
+        this.storePermissionCacheStaleTimeout = storePermissionCacheStaleTimeout;
+    }
+
+    public int getStorePermissionCacheStaleTimeoutSeconds() {
+        return toSeconds(storePermissionCacheStaleTimeout);
+    }
+
+    public int getStorePermissionCacheSize() {
+        return storePermissionCacheSize;
+    }
+
+    public void setStorePermissionCacheSize(int storePermissionCacheSize) {
+        this.storePermissionCacheSize = storePermissionCacheSize;
+    }
+
+    public int getStoreUpdateDBMaxRetries() {
+        return storeUpdateDBMaxRetries;
+    }
+
+    public void setStoreUpdateDBMaxRetries(int storeUpdateDBMaxRetries) {
+        this.storeUpdateDBMaxRetries = storeUpdateDBMaxRetries;
+    }
+
+    public AllowRejectionForDataRetentionPolicyExpired getAllowRejectionForDataRetentionPolicyExpired() {
+        return allowRejectionForDataRetentionPolicyExpired;
+    }
+
+    public void setAllowRejectionForDataRetentionPolicyExpired(AllowRejectionForDataRetentionPolicyExpired allowRejectionForDataRetentionPolicyExpired) {
+        this.allowRejectionForDataRetentionPolicyExpired = allowRejectionForDataRetentionPolicyExpired;
+    }
+
     public AttributeFilter getAttributeFilter(Entity entity) {
-        return attributeFilters.get(entity);
+        AttributeFilter filter = attributeFilters.get(entity);
+        if (filter == null)
+            throw new IllegalArgumentException("No Attribute Filter for " + entity + " configured");
+
+        return filter;
     }
 
     public void setAttributeFilter(Entity entity, AttributeFilter filter) {
         attributeFilters.put(entity, filter);
+    }
+
+    public Map<Entity, AttributeFilter> getAttributeFilters() {
+        return attributeFilters;
+    }
+
+    public IDGenerator getIDGenerator(IDGenerator.Name name) {
+        IDGenerator filter = idGenerators.get(name);
+        if (filter == null)
+            throw new IllegalArgumentException("No ID Generator for " + name + " configured");
+
+        return filter;
+    }
+
+    public void setIDGenerator(IDGenerator.Name name, IDGenerator generator) {
+        idGenerators.put(name, generator);
+    }
+
+    public void addIDGenerator(IDGenerator generator) {
+        idGenerators.put(generator.getName(), generator);
+    }
+
+    public void removeIDGenerator(IDGenerator generator) {
+        idGenerators.remove(generator.getName());
+    }
+
+    public Map<IDGenerator.Name, IDGenerator> getIDGenerators() {
+        return idGenerators;
     }
 
     public QueryRetrieveView[] getQueryRetrieveViews() {
@@ -417,8 +741,22 @@ public class ArchiveDeviceExtension extends DeviceExtension {
         return null;
     }
 
+    public QueryRetrieveView getQueryRetrieveViewNotNull(String viewID) {
+        QueryRetrieveView view = getQueryRetrieveView(viewID);
+        if (view == null)
+            throw new IllegalArgumentException("No Query Retrieve View configured with ID:" + viewID);
+        return view;
+    }
+
     public StorageDescriptor getStorageDescriptor(String storageID) {
         return storageDescriptorMap.get(storageID);
+    }
+
+    public StorageDescriptor getStorageDescriptorNotNull(String storageID) {
+        StorageDescriptor descriptor = getStorageDescriptor(storageID);
+        if (descriptor == null)
+            throw new IllegalArgumentException("No Storage configured with ID:" + storageID);
+        return descriptor;
     }
 
     public StorageDescriptor removeStorageDescriptor(String storageID) {
@@ -433,12 +771,15 @@ public class ArchiveDeviceExtension extends DeviceExtension {
         return storageDescriptorMap.values();
     }
 
-    public Collection<AttributeFilter> getAttributeFilters() {
-        return attributeFilters.values();
-    }
-
     public QueueDescriptor getQueueDescriptor(String queueName) {
         return queueDescriptorMap.get(queueName);
+    }
+
+    public QueueDescriptor getQueueDescriptorNotNull(String queueName) {
+        QueueDescriptor descriptor = getQueueDescriptor(queueName);
+        if (descriptor == null)
+            throw new IllegalArgumentException("No Queue configured with name:" + queueName);
+        return descriptor;
     }
 
     public QueueDescriptor removeQueueDescriptor(String queueName) {
@@ -455,6 +796,13 @@ public class ArchiveDeviceExtension extends DeviceExtension {
 
     public ExporterDescriptor getExporterDescriptor(String exporterID) {
         return exporterDescriptorMap.get(exporterID);
+    }
+
+    public ExporterDescriptor getExporterDescriptorNotNull(String exporterID) {
+        ExporterDescriptor descriptor = getExporterDescriptor(exporterID);
+        if (descriptor == null)
+            throw new IllegalArgumentException("No Exporter configured with ID:" + exporterID);
+        return descriptor;
     }
 
     public ExporterDescriptor removeExporterDescriptor(String exporterID) {
@@ -485,6 +833,22 @@ public class ArchiveDeviceExtension extends DeviceExtension {
         return exportRules;
     }
 
+    public void removeHL7ForwardRule(HL7ForwardRule rule) {
+        hl7ForwardRules.remove(rule);
+    }
+
+    public void clearHL7ForwardRules() {
+        hl7ForwardRules.clear();
+    }
+
+    public void addHL7ForwardRule(HL7ForwardRule rule) {
+        hl7ForwardRules.add(rule);
+    }
+
+    public Collection<HL7ForwardRule> getHL7ForwardRules() {
+        return hl7ForwardRules;
+    }
+
     public void removeCompressionRule(ArchiveCompressionRule rule) {
         compressionRules.remove(rule);
     }
@@ -499,6 +863,22 @@ public class ArchiveDeviceExtension extends DeviceExtension {
 
     public Collection<ArchiveCompressionRule> getCompressionRules() {
         return compressionRules;
+    }
+
+    public void removeStudyRetentionPolicy(StudyRetentionPolicy policy) {
+        studyRetentionPolicies.remove(policy);
+    }
+
+    public void clearStudyRetentionPolicies() {
+        studyRetentionPolicies.clear();
+    }
+
+    public void addStudyRetentionPolicy(StudyRetentionPolicy policy) {
+        studyRetentionPolicies.add(policy);
+    }
+
+    public Collection<StudyRetentionPolicy> getStudyRetentionPolicies() {
+        return studyRetentionPolicies;
     }
 
     public void removeAttributeCoercion(ArchiveAttributeCoercion coercion) {
@@ -530,6 +910,14 @@ public class ArchiveDeviceExtension extends DeviceExtension {
         return null;
     }
 
+    public RejectionNote getRejectionNote(RejectionNote.Type rejectionNoteType) {
+        for (RejectionNote rejectionNote : rejectionNoteMap.values()) {
+            if (rejectionNote.getRejectionNoteType() == rejectionNoteType)
+                return rejectionNote;
+        }
+        return null;
+    }
+
     public RejectionNote removeRejectionNote(String rjNoteID) {
         return rejectionNoteMap.remove(rjNoteID);
     }
@@ -542,16 +930,24 @@ public class ArchiveDeviceExtension extends DeviceExtension {
         return rejectionNoteMap.values();
     }
 
+    public AllowDeleteStudyPermanently getAllowDeleteStudyPermanently() {
+        return allowDeleteStudyPermanently;
+    }
+
+    public void setAllowDeleteStudyPermanently(AllowDeleteStudyPermanently allowDeleteStudyPermanently) {
+        this.allowDeleteStudyPermanently = allowDeleteStudyPermanently;
+    }
+
     @Override
     public void reconfigure(DeviceExtension from) {
         ArchiveDeviceExtension arcdev = (ArchiveDeviceExtension) from;
         fuzzyAlgorithmClass = arcdev.fuzzyAlgorithmClass;
         fuzzyStr = arcdev.fuzzyStr;
         storageID = arcdev.storageID;
+        metadataStorageID = arcdev.metadataStorageID;
         overwritePolicy = arcdev.overwritePolicy;
         bulkDataSpoolDirectory = arcdev.bulkDataSpoolDirectory;
         queryRetrieveViewID = arcdev.queryRetrieveViewID;
-        queryMatchUnknown = arcdev.queryMatchUnknown;
         personNameComponentOrderInsensitiveMatching = arcdev.personNameComponentOrderInsensitiveMatching;
         sendPendingCGet = arcdev.sendPendingCGet;
         sendPendingCMoveInterval = arcdev.sendPendingCMoveInterval;
@@ -560,12 +956,19 @@ public class ArchiveDeviceExtension extends DeviceExtension {
         wadoSR2HtmlTemplateURI = arcdev.wadoSR2HtmlTemplateURI;
         wadoSR2TextTemplateURI = arcdev.wadoSR2TextTemplateURI;
         patientUpdateTemplateURI = arcdev.patientUpdateTemplateURI;
+        importReportTemplateURI = arcdev.importReportTemplateURI;
+        scheduleProcedureTemplateURI = arcdev.scheduleProcedureTemplateURI;
         qidoMaxNumberOfResults = arcdev.qidoMaxNumberOfResults;
         queryRetrieveViews = arcdev.queryRetrieveViews;
         mppsForwardDestinations = arcdev.mppsForwardDestinations;
+        ianDestinations = arcdev.ianDestinations;
+        ianDelay = arcdev.ianDelay;
+        ianTimeout = arcdev.ianTimeout;
+        ianOnTimeout = arcdev.ianOnTimeout;
+        ianTaskPollingInterval = arcdev.ianTaskPollingInterval;
+        ianTaskFetchSize = arcdev.ianTaskFetchSize;
         fallbackCMoveSCP = arcdev.fallbackCMoveSCP;
         fallbackCMoveSCPDestination = arcdev.fallbackCMoveSCPDestination;
-        fallbackCMoveSCPLevel = arcdev.fallbackCMoveSCPLevel;
         fallbackCMoveSCPRetries = arcdev.fallbackCMoveSCPRetries;
         alternativeCMoveSCP = arcdev.alternativeCMoveSCP;
         exportTaskPollingInterval = arcdev.exportTaskPollingInterval;
@@ -577,11 +980,37 @@ public class ArchiveDeviceExtension extends DeviceExtension {
         deleteStudyBatchSize = arcdev.deleteStudyBatchSize;
         deletePatientOnDeleteLastStudy = arcdev.deletePatientOnDeleteLastStudy;
         maxAccessTimeStaleness = arcdev.maxAccessTimeStaleness;
+        aeCacheStaleTimeout = arcdev.aeCacheStaleTimeout;
+        leadingCFindSCPQueryCacheStaleTimeout = arcdev.leadingCFindSCPQueryCacheStaleTimeout;
+        leadingCFindSCPQueryCacheSize = arcdev.leadingCFindSCPQueryCacheSize;
         auditSpoolDirectory = arcdev.auditSpoolDirectory;
         auditPollingInterval = arcdev.auditPollingInterval;
         auditAggregateDuration = arcdev.auditAggregateDuration;
+        stowSpoolDirectory = arcdev.stowSpoolDirectory;
+        wadoSpoolDirectory = arcdev.wadoSpoolDirectory;
+        hl7LogFilePattern = arcdev.hl7LogFilePattern;
+        hl7ErrorLogFilePattern = arcdev.hl7ErrorLogFilePattern;
+        purgeQueueMessagePollingInterval = arcdev.purgeQueueMessagePollingInterval;
+        purgeQueueMessageFetchSize = arcdev.purgeQueueMessageFetchSize;
+        hideSPSWithStatusFrom = arcdev.hideSPSWithStatusFrom;
+        rejectExpiredStudiesPollingInterval = arcdev.rejectExpiredStudiesPollingInterval;
+        rejectExpiredStudiesPollingStartTime = arcdev.rejectExpiredStudiesPollingStartTime;
+        rejectExpiredStudiesFetchSize = arcdev.rejectExpiredStudiesFetchSize;
+        rejectExpiredSeriesFetchSize = arcdev.rejectExpiredSeriesFetchSize;
+        rejectExpiredStudiesAETitle = arcdev.rejectExpiredStudiesAETitle;
+        fallbackCMoveSCPStudyOlderThan = arcdev.fallbackCMoveSCPStudyOlderThan;
+        storePermissionServiceURL = arcdev.storePermissionServiceURL;
+        storePermissionServiceResponsePattern = arcdev.storePermissionServiceResponsePattern;
+        storePermissionCacheStaleTimeout = arcdev.storePermissionCacheStaleTimeout;
+        storePermissionCacheSize = arcdev.storePermissionCacheSize;
+        storeUpdateDBMaxRetries = arcdev.storeUpdateDBMaxRetries;
+        allowRejectionForDataRetentionPolicyExpired = arcdev.allowRejectionForDataRetentionPolicyExpired;
+        acceptMissingPatientID = arcdev.acceptMissingPatientID;
+        allowDeleteStudyPermanently = arcdev.allowDeleteStudyPermanently;
         attributeFilters.clear();
         attributeFilters.putAll(arcdev.attributeFilters);
+        idGenerators.clear();
+        idGenerators.putAll(arcdev.idGenerators);
         storageDescriptorMap.clear();
         storageDescriptorMap.putAll(arcdev.storageDescriptorMap);
         queueDescriptorMap.clear();
@@ -590,8 +1019,12 @@ public class ArchiveDeviceExtension extends DeviceExtension {
         exporterDescriptorMap.putAll(arcdev.exporterDescriptorMap);
         exportRules.clear();
         exportRules.addAll(arcdev.exportRules);
+        hl7ForwardRules.clear();
+        hl7ForwardRules.addAll(arcdev.hl7ForwardRules);
         compressionRules.clear();
         compressionRules.addAll(arcdev.compressionRules);
+        studyRetentionPolicies.clear();
+        studyRetentionPolicies.addAll(arcdev.studyRetentionPolicies);
         attributeCoercions.clear();
         attributeCoercions.addAll(arcdev.attributeCoercions);
         rejectionNoteMap.clear();

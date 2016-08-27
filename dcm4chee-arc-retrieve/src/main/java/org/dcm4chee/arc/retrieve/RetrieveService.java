@@ -40,11 +40,14 @@
 
 package org.dcm4chee.arc.retrieve;
 
+import org.dcm4che3.conf.api.ConfigurationException;
 import org.dcm4che3.data.Attributes;
+import org.dcm4che3.data.AttributesCoercion;
 import org.dcm4che3.imageio.codec.Transcoder;
 import org.dcm4che3.io.DicomInputStream;
 import org.dcm4che3.net.Association;
 import org.dcm4che3.net.service.QueryRetrieveLevel2;
+import org.dcm4chee.arc.conf.Availability;
 
 import javax.servlet.http.HttpServletRequest;
 import java.io.IOException;
@@ -52,6 +55,7 @@ import java.util.Collection;
 
 /**
  * @author Gunter Zeilinger <gunterze@gmail.com>
+ * @author Vrinda Nayak <vrinda.nayak@j4care.com>
  * @since Aug 2015
  */
 public interface RetrieveService {
@@ -59,26 +63,34 @@ public interface RetrieveService {
             Association as, Attributes cmd, QueryRetrieveLevel2 qrLevel, Attributes keys);
 
     RetrieveContext newRetrieveContextMOVE(
-            Association as, Attributes cmd, QueryRetrieveLevel2 qrLevel, Attributes keys);
+            Association as, Attributes cmd, QueryRetrieveLevel2 qrLevel, Attributes keys)
+            throws ConfigurationException;
 
     RetrieveContext newRetrieveContextWADO(
             HttpServletRequest request, String localAET, String studyUID, String seriesUID, String objectUID);
 
     RetrieveContext newRetrieveContextSTORE(
-            String localAET, String studyUID, String seriesUID, String objectUID, String destAET);
+            String localAET, String studyUID, String seriesUID, String objectUID, String destAET)
+            throws ConfigurationException;
+
+    RetrieveContext newRetrieveContextIOCM(
+            HttpServletRequest request, String localAET, String studyUID, String... seriesUIDs);
 
     boolean calculateMatches(RetrieveContext ctx);
+
+    InstanceLocations newInstanceLocations(
+            String sopClassUID, String sopInstanceUID, String retrieveAETs, Availability availability, Attributes attrs);
 
     Transcoder openTranscoder(RetrieveContext ctx, InstanceLocations inst, Collection<String> tsuids, boolean fmi)
             throws IOException;
 
     DicomInputStream openDicomInputStream(RetrieveContext ctx, InstanceLocations inst) throws IOException;
 
+    Attributes loadMetadata(RetrieveContext ctx, InstanceLocations inst) throws IOException;
+
     Collection<InstanceLocations> removeNotAccessableMatches(RetrieveContext ctx);
 
-    void failedToRetrieveStudy(String studyInstanceUID, String failedSOPInstanceUIDList);
+    AttributesCoercion getAttributesCoercion(RetrieveContext ctx, InstanceLocations inst);
 
-    void clearFailedSOPInstanceUIDList(String studyInstanceUID);
-
-    void coerceAttributes(RetrieveContext ctx, InstanceLocations inst, Attributes dataset);
+    void updateFailedSOPInstanceUIDList(RetrieveContext ctx, String failedSOPInstanceUIDList);
 }

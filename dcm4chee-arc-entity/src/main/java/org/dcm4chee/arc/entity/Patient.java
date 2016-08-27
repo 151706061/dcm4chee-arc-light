@@ -61,7 +61,7 @@ import java.util.*;
 @NamedQuery(
     name=Patient.FIND_BY_PATIENT_ID_EAGER,
     query="select p from Patient p " +
-            "join fetch p.patientName " +
+            "left join fetch p.patientName " +
             "join fetch p.attributesBlob " +
             "where p.patientID.id = ?1"),
 @NamedQuery(
@@ -71,7 +71,6 @@ import java.util.*;
 @NamedQuery(
     name=Patient.FIND_BY_PATIENT_FAMILY_NAME_EAGER,
     query="select p from Patient p " +
-            "left join fetch p.patientName " +
             "left join fetch p.patientName " +
             "join fetch p.attributesBlob " +
             "where p.patientName.familyName = ?1"),
@@ -88,6 +87,7 @@ import java.util.*;
 @Table(name = "patient",
     uniqueConstraints = @UniqueConstraint(columnNames = "patient_id_fk"),
     indexes = {
+        @Index(columnList = "num_studies"),
         @Index(columnList = "pat_birthdate"),
         @Index(columnList = "pat_sex"),
         @Index(columnList = "pat_custom1"),
@@ -141,6 +141,9 @@ public class Patient {
     @Basic(optional = false)
     @Column(name = "pat_custom3")
     private String patientCustomAttribute3;
+
+    @Column(name = "num_studies")
+    private int numberOfStudies;
 
     @OneToOne(cascade = CascadeType.ALL, orphanRemoval = true, optional = false)
     @JoinColumn(name = "dicomattrs_fk")
@@ -212,6 +215,22 @@ public class Patient {
         return patientCustomAttribute3;
     }
 
+    public int getNumberOfStudies() {
+        return numberOfStudies;
+    }
+
+    public void setNumberOfStudies(int numberOfStudies) {
+        this.numberOfStudies = numberOfStudies;
+    }
+
+    public void incrementNumberOfStudies() {
+        numberOfStudies++;
+    }
+
+    public void decrementNumberOfStudies() {
+        numberOfStudies = Math.max(numberOfStudies-1, 0);
+    }
+
     public Patient getMergedWith() {
         return mergedWith;
     }
@@ -254,5 +273,4 @@ public class Patient {
         else
             attributesBlob.setAttributes(new Attributes(attrs, filter.getSelection()));
     }
-
 }

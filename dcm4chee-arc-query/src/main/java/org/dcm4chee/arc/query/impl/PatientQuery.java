@@ -45,6 +45,9 @@ import com.querydsl.core.Tuple;
 import com.querydsl.core.types.Expression;
 import com.querydsl.jpa.hibernate.HibernateQuery;
 import org.dcm4che3.data.Attributes;
+import org.dcm4che3.data.Tag;
+import org.dcm4che3.data.VR;
+import org.dcm4che3.dict.archive.ArchiveTag;
 import org.dcm4chee.arc.entity.AttributesBlob;
 import org.dcm4chee.arc.entity.QPatient;
 import org.dcm4chee.arc.query.QueryContext;
@@ -59,6 +62,9 @@ class PatientQuery extends AbstractQuery {
 
     private static final Expression<?>[] SELECT = {
             QPatient.patient.pk,
+            QPatient.patient.numberOfStudies,
+            QPatient.patient.createdTime,
+            QPatient.patient.updatedTime,
             QueryBuilder.patientAttributesBlob.encodedAttributes
     };
 
@@ -87,6 +93,11 @@ class PatientQuery extends AbstractQuery {
     protected Attributes toAttributes(Tuple results) {
         Attributes patAttrs = AttributesBlob.decodeAttributes(
                 results.get(QueryBuilder.patientAttributesBlob.encodedAttributes), null);
+        patAttrs.setInt(Tag.NumberOfPatientRelatedStudies, VR.IS, results.get(QPatient.patient.numberOfStudies));
+        patAttrs.setDate(ArchiveTag.PrivateCreator, ArchiveTag.PatientCreateDateTime, VR.DT,
+                results.get(QPatient.patient.createdTime));
+        patAttrs.setDate(ArchiveTag.PrivateCreator, ArchiveTag.PatientUpdateDateTime, VR.DT,
+                results.get(QPatient.patient.updatedTime));
         return patAttrs;
     }
 

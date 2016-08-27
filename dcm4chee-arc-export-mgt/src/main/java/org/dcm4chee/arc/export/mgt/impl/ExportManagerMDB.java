@@ -56,7 +56,7 @@ public class ExportManagerMDB implements MessageListener {
             exportContext.setSopInstanceUID(msg.getStringProperty("SopInstanceUID"));
             exportContext.setAETitle(msg.getStringProperty("AETitle"));
             outcome = exporter.export(exportContext);
-        } catch (Exception e) {
+        } catch (Throwable e) {
             LOG.warn("Failed to process {}", msg, e);
             queueManager.onProcessingFailed(msgID, e);
             return;
@@ -65,6 +65,6 @@ public class ExportManagerMDB implements MessageListener {
     }
 
     private ExporterDescriptor getExporterDescriptor(String exporterID) {
-        return device.getDeviceExtension(ArchiveDeviceExtension.class).getExporterDescriptor(exporterID);
+        return device.getDeviceExtension(ArchiveDeviceExtension.class).getExporterDescriptorNotNull(exporterID);
     }
 }

@@ -1,261 +1,167 @@
 "use strict";
 
-myApp.directive("editArea",function($schema, cfpLoadingBar, $log, DeviceService, $compile, schemas, $select){
-	return{
-		restrict:"A",
-		templateUrl: 'templates/device_form.html',
-		link: function(scope,elm,attr) {
-    		// cfpLoadingBar.start();
-            cfpLoadingBar.set(cfpLoadingBar.status()+(0.2));
-            scope.form = scope.form || {};
-            scope.form[scope.selectedElement] = scope.form[scope.selectedElement] || {};
-            $log.debug("scope.form=",scope.form);
+myApp.directive("editArea",function(cfpLoadingBar, $log, DeviceService, $compile, schemas, $select){
+    var execute = function(scope,elm,attr){
+                scope.dynamic_schema    = {};
+                scope.dynamic_form      = [];
+              if(scope.selectedElement === "device"){
+                cfpLoadingBar.set(cfpLoadingBar.status()+(0.1));
 
-            if(scope.selectedElement === "device"){
-
+                scope.dynamic_schema = DeviceService.getDeviceSchema();
+                if(!scope.deviceSchema){
+                    var timeOut = 0;
+                    var schema  = {};
+                    var waitForShema = setInterval(function(){
+                        schema  = DeviceService.getDeviceSchema();
+                        if(schema){
+                            clearInterval(waitForShema);
+                            scope.dynamic_schema = schema;
+                        }
+                        if(timeOut > 100){  //If the program is waiting more than 10 sec than break up and show alert
+                            clearInterval(waitForShema);
+                            $log.error("Timeout error!");
+                            vex.dialog.alert("Timeout error, can't get device information, please reload the page and try again!");
+                        }
+                        timeOut++;
+                    }, 100);
+                }
+                //If the wholeDevice is undefined wait for it, otherwaise assigne it to dynamic_model
+                if(scope.wholeDevice === undefined || scope.wholeDevice.dicomDeviceName != scope.currentDevice){
+                    var timeOut = 0;
+                    var waitForWholeDevice = setInterval(function(){
+                        if(scope.wholeDevice !== undefined){
+                            clearInterval(waitForWholeDevice);
+                            scope.dynamic_model = scope.wholeDevice;
+                        }
+                        if(timeOut > 100){  //If the program is waiting more than 10 sec than break up and show alert
+                            clearInterval(waitForWholeDevice);
+                            $log.error("Timeout error!");
+                            vex.dialog.alert("Timeout error, can't get device information, please reload the page and try again!");
+                        }
+                        timeOut++;
+                    }, 100);
+                }else{
+                    scope.dynamic_model = scope.wholeDevice;
+                }
+                cfpLoadingBar.set(cfpLoadingBar.status()+(0.2));
+                scope.dynamic_form = DeviceService.getDeviceForm();
             }else{
-                console.log("in directive schema=",DeviceService.getSchema(scope.selectedElement));
-                // console.log("schemas",schemas, "scope.form=",scope.form,",schemas[scope.selectedElement]=",schemas[scope.selectedElement][scope.selectedElement]["items"]);
-                // $log.debug("$select[scope.selectedElement]=",$select[scope.selectedElement]);
-                if($select[scope.selectedElement].type==="array"){
-                    var timeout = 50;
+                    DeviceService.getSchema(scope.selectedElement);
+                    DeviceService.getForm(scope);
+                    scope.form[scope.selectedElement] = scope.form[scope.selectedElement] || {};
+                    scope.dynamic_form = scope.form[scope.selectedElement]["form"];
+                    var timeout = 300;
                     var wait = setInterval(function(){
-                        $log.debug("1schemas=",schemas);
-                        $log.debug("1scope.selectedElement=",scope.selectedElement);
-                        // $log.debug("scope.selectedElement=",schemas[scope.selectedElement][scope.selectedElement][scope.selectedElement]);
-                        // $log.debug("length=",schemas[scope.selectedElement][scope.selectedElement]["items"][scope.selectedElement]);
-                        console.log("schemas=",JSON.parse(JSON.stringify(console.dir(schemas))));
-                        // $log.debug("schemas[scope.selectedElement]=",schemas[scope.selectedElement][scope.selectedElement]["items"][scope.selectedElement]);
-                        
-                        if(
-                            schemas[scope.selectedElement] && 
-                            schemas[scope.selectedElement][scope.selectedElement] && 
-                            schemas[scope.selectedElement][scope.selectedElement]["items"] && 
-                            schemas[scope.selectedElement][scope.selectedElement]["items"][scope.selectedElement]
-                           ){
+                            var checkItemsProperties = (
+                                schemas[scope.selectedElement] &&
+                                schemas[scope.selectedElement][scope.selectedElement] &&
+                                schemas[scope.selectedElement][scope.selectedElement]["items"] &&
+                                schemas[scope.selectedElement][scope.selectedElement]["items"]["properties"] 
+                                );
+                            var checkItems = (
+                                schemas[scope.selectedElement] &&
+                                schemas[scope.selectedElement][scope.selectedElement] &&
+                                schemas[scope.selectedElement][scope.selectedElement]["items"] &&
+                                schemas[scope.selectedElement][scope.selectedElement]["items"][scope.selectedElement]
+                                );
+                            var checkProp = (
+                                schemas[scope.selectedElement] &&
+                                schemas[scope.selectedElement][scope.selectedElement] &&
+                                schemas[scope.selectedElement][scope.selectedElement][scope.selectedElement] &&
+                                schemas[scope.selectedElement][scope.selectedElement][scope.selectedElement]["properties"]
+                            );                      
+                            var checkPropShort = (
+                                schemas[scope.selectedElement] &&
+                                schemas[scope.selectedElement][scope.selectedElement] &&
+                                schemas[scope.selectedElement][scope.selectedElement]["properties"]
+                            );
+                        if(checkItems || checkProp|| checkPropShort || checkItemsProperties){
                             clearInterval(wait);
-                            DeviceService.setFormModel(scope);
-                            scope.form[scope.selectedElement]["schema"] = schemas[scope.selectedElement][scope.selectedElement]["items"][scope.selectedElement];
-                            $log.debug("$select[scope.selectedElement].parentOf",$select[scope.selectedElement].parentOf);
                             if($select[scope.selectedElement].parentOf){
-                                $log.debug("in if");
                                 angular.forEach($select[scope.selectedElement].parentOf,function(m,i){
-                                    delete scope.form[scope.selectedElement]["schema"].properties[$select[scope.selectedElement].parentOf[i]];
+                                    if(     
+                                        checkItems &&
+                                        schemas[scope.selectedElement][scope.selectedElement]["items"][scope.selectedElement].properties &&
+                                        schemas[scope.selectedElement][scope.selectedElement]["items"][scope.selectedElement].properties[$select[scope.selectedElement].parentOf[i]]
+                                        ){
+                                        delete schemas[scope.selectedElement][scope.selectedElement]["items"][scope.selectedElement].properties[$select[scope.selectedElement].parentOf[i]];
+                                    }
+                                    if(     
+                                        checkProp &&
+                                        schemas[scope.selectedElement][scope.selectedElement][scope.selectedElement].properties[$select[scope.selectedElement].parentOf[i]]
+                                        ){
+                                        delete schemas[scope.selectedElement][scope.selectedElement][scope.selectedElement].properties[$select[scope.selectedElement].parentOf[i]];
+                                    }
+                                    if(     
+                                        checkPropShort &&
+                                        schemas[scope.selectedElement][scope.selectedElement].properties[$select[scope.selectedElement].parentOf[i]]
+                                        ){
+                                        delete schemas[scope.selectedElement][scope.selectedElement].properties[$select[scope.selectedElement].parentOf[i]];
+                                    }
+                                    if(checkItemsProperties &&
+                                        schemas[scope.selectedElement][scope.selectedElement].itmes.properties[$select[scope.selectedElement].parentOf[i]]
+                                        ){
+                                            delete schemas[scope.selectedElement][scope.selectedElement].itmes.properties[$select[scope.selectedElement].parentOf[i]]
+                                    }
                                 });
                             }
-
-                            $log.debug("1scope.form[scope.selectedElement][schema]",scope.form[scope.selectedElement]["schema"]);
-                            // scope.form[scope.selectedElement]["model"]  = scope.wholeDevice;
-                        }else{
-                            console.log("waiting", JSON.parse(JSON.stringify(console.dir(schemas))));
-                            // $log.debug("waiting", schemas[dicomTransferCapability]);
-                            // console.log("scope.selectedElemen=", JSON.parse(JSON.stringify(console.dir(scope.selectedElement))));
+                            if(checkItems){
+                                scope.dynamic_schema = schemas[scope.selectedElement][scope.selectedElement]["items"][scope.selectedElement];
+                            }else{
+                                if(checkProp){
+                                    scope.dynamic_schema = schemas[scope.selectedElement][scope.selectedElement][scope.selectedElement];
+                                }else{
+                                    if(checkItemsProperties){
+                                        scope.dynamic_schema = schemas[scope.selectedElement][scope.selectedElement].items;
+                                    }else{
+                                        scope.dynamic_schema = schemas[scope.selectedElement][scope.selectedElement];
+                                    }
+                                }
+                            }
+                            scope.dynamic_form = scope.form[scope.selectedElement]["form"];
+                            DeviceService.addEmptyArrayFields(scope);
                         }
                         if(timeout<0){
                             clearInterval(wait);
                         }else{
-                            $log.debug("temout=",timeout);
                             timeout--;
                         }
-                    },100);
-                }else{
-                    var wait2 = setInterval(function(){
-                        $log.debug("2schemas=",schemas);
-                        $log.debug("2scope.selectedElement=",scope.selectedElement);
-                        $log.debug("scope.selectedElement=",schemas[scope.selectedElement][scope.selectedElement][scope.selectedElement]);
-                        // $log.debug("length=",schemas[scope.selectedElement][scope.selectedElement]["items"][scope.selectedElement]);
-                        if(schemas[scope.selectedElement][scope.selectedElement][scope.selectedElement]){
-                            clearInterval(wait2);
-                            DeviceService.setFormModel(scope);
-                            scope.form[scope.selectedElement]["schema"] = schemas[scope.selectedElement][scope.selectedElement][scope.selectedElement];
-                            // if($select[scope.selectedElement].parentOf){
-                            //     angular.forEach($select[scope.selectedElement].parentOf,function(m,i){
-                            //         delete scope.form[scope.selectedElement]["schema"].properties[$select[scope.selectedElement].parentOf[i]];
-                            //     });
-                            // }
-                            $log.debug("2scope.form[scope.selectedElement][schema]",scope.form[scope.selectedElement]["schema"]);
-                            // scope.form[scope.selectedElement]["model"]  = scope.wholeDevice;
-                        }else{
-                            $log.debug("waiting");
-                        }
-                    },100);
-                }
 
-            }
-            
-            $log.debug("selectedElement=",scope.selectedElement);
-            $log.debug("scope.form=",scope.form);
+                    },10);
 
-            // $log.debug("in formEditAreaDir");
-			if(scope.selectedElement === "device"){
-                // $log.debug("status=",cfpLoadingBar.status());
-                // $log.debug("in formEditArea wholeDevice",scope.wholeDevice);
-                // $log.debug("in formEditArea scope.currentDevice=",scope.currentDevice);
-                cfpLoadingBar.set(cfpLoadingBar.status()+(0.1));
-
-				scope.deviceSchema = DeviceService.getDeviceSchema();
-                $log.debug("scope.deviceSchema",scope.deviceSchema);
-                if(!scope.deviceSchema){
-                    // DeviceService.getDeviceSchema();
-                    var timeOut = 0;
-                    var schema  = {};
-                    var waitForShema = setInterval(function(){
-                        // $log.debug("tiemOut =",timeOut);
-                        $log.debug("inwait scheam=",DeviceService.getDeviceSchema());
-                        schema  = DeviceService.getDeviceSchema();
-                        if(schema){
-                            clearInterval(waitForShema);
-                            scope.deviceSchema = schema;
-                        }
-                        if(timeOut > 100){  //If the program is waiting more than 10 sec than break up and show alert
-                            clearInterval(waitForShema);
-                            $log.error("Timeout error!");
-                            vex.dialog.alert("Timeout error, can't get device information, please reload the page and try again!");
-                        }
-                        timeOut++;
-                    }, 100);
-                }
-                //If the wholeDevice is undefined wait for it, otherwaise assigne it to deviceModel
-                if(scope.wholeDevice === undefined || scope.wholeDevice.dicomDeviceName != scope.currentDevice){
-                    var timeOut = 0;
-                    var waitForWholeDevice = setInterval(function(){
-                        // $log.debug("tiemOut =",timeOut);
-                        if(scope.wholeDevice !== undefined){
-                            clearInterval(waitForWholeDevice);
-                            scope.deviceModel = scope.wholeDevice;
-                        }
-                        if(timeOut > 100){  //If the program is waiting more than 10 sec than break up and show alert
-                            clearInterval(waitForWholeDevice);
-                            $log.error("Timeout error!");
-                            vex.dialog.alert("Timeout error, can't get device information, please reload the page and try again!");
-                        }
-                        timeOut++;
-                    }, 100);
-                }else{
-                    // if(!scope.wholeDevice.dicomInstitutionCode){
-                    //     $log.debug("in if add institutecode");
-                    //     scope.wholeDevice["dicomInstitutionCode"] =  [];
-                    //     scope.wholeDevice.dicomInstitutionCode.push(null);
-                    // }
-                    // $log.debug("123wholeDevice=",scope.wholeDevice);
-                    // $log.debug("1deviceModel=",scope.deviceModel);
-                    // if(!scope.deviceModel){
-                    scope.deviceModel = scope.wholeDevice;
-                    // }
-                    // $log.debug("2deviceModel=",scope.deviceModel);
-                    // setTimeout(function(){
-                    //     if(scope.currentDevice == "CHANGE_ME"){
-                    //         $log.debug("#dicomDeviceName=",$("#dicomDeviceName"));
-                    //         $("#dicomDeviceName").css({"pointer-events":"auto","background":"white"});
-                    //     }
-                    // },500);
-                }
-                cfpLoadingBar.set(cfpLoadingBar.status()+(0.2));
-                // $log.debug("1 scope.deviceForm=",scope.deviceForm);
-
-                scope.deviceForm = DeviceService.getDeviceForm();
-                // $log.debug("2 scope.deviceForm=",scope.deviceForm);
-                // scope.deviceForm.startEmpty = true;
-            }
-            
-			//If the first selectbutton was changed than show the NetworkConnection of dhe device
-			if(scope.selectedElement === "dicomNetworkConnection" && scope.wholeDevice.dicomNetworkConnection){
-
-                var dicomNetConnSchema 		    = DeviceService.getSchemaDicomNetworkConn();
-	                scope.dicomNetConnSchema 	= dicomNetConnSchema.properties.dicomNetworkConnection.items;
-                    $log.debug("dicomNetConnSchema=",dicomNetConnSchema);
-                var index;
-
-                angular.forEach(scope.wholeDevice.dicomNetworkConnection,function(value,key) {
-                	if(value.cn === scope.selectedPart.dicomNetworkConnection){
-                		index = key;
-                	}
-                });
-
-                scope.dicomNetConnModel = scope.wholeDevice.dicomNetworkConnection[index];
-                scope.dicomNetConnForm  = DeviceService.getFormDicomNetworkConn();
-            }
-            cfpLoadingBar.set(cfpLoadingBar.status()+(0.2));
-  /*          if(scope.selectedElement === "dicomNetworkAE" && scope.selectedPart.dicomNetworkAE){
-
-                    scope.networkAeSchema   = DeviceService.getSchemaNetworkAe();
-                    // scope.networkAeSchema 	= $schema;
-                    
-                    // $log.debug("networkAeSchema=",scope.networkAeSchema);
-                    // $log.debug("networkAeSchema=",DeviceService.getSchemaNetworkAe());
-                var networAeToEdit 	        = {};
-                var toEditKey;
-
-                angular.forEach(scope.wholeDevice.dicomNetworkAE,function(value,key) {
-                	if(value.dicomAETitle === scope.selectedPart.dicomNetworkAE){
-                		networAeToEdit      = value;
-                        toEditKey           = key;
-                	}
-                });
-
-                scope.transfcap             = scope.wholeDevice.dicomNetworkAE[toEditKey].dicomTransferCapability;
-                scope.networkAeModel        = scope.wholeDevice.dicomNetworkAE[toEditKey];
-                scope.networkAeForm         = DeviceService.getFormNetworkAe(scope.wholeDevice.dicomNetworkConnection);
-                // $log.debug("geetFormNetworkAe=",DeviceService.getFormNetworkAe(scope.wholeDevice.dicomNetworkConnection));
-/*                scope.networkAeForm = [
-                                        "dicomAETitle",
-                                        "select",
-                                        {
-                                        "key": "dicomNetworkConnectionReference",
-                                        "type": "checkboxes",
-                                        "titleMap": {
-                                                  "/dicomNetworkConnection/0": "A",
-                                                  "/dicomNetworkConnection/1": "B",
-                                                  "/dicomNetworkConnection/2": "C"
-                                                }
-                                        },
-                                        "dicomAssociationInitiator"
-                                      ];*/
-                // $log.debug("geetFormNetworkAe2=",scope.networkAeForm);
-                // $log.debug("wholeDevice=",scope.wholeDevice);
-                
-                // angular.element(document.getElementById('SelectDicomTransferCapability'))
-                //                    .html($compile("<div select-transfare-capability></div>")(scope));
-
-            /*}
-            */
-            cfpLoadingBar.set(cfpLoadingBar.status()+(0.2));
-            $log.debug("before dicomTransferCapability in formEditAreaDir scope.selectedElement=",scope.selectedElement,"scope.selectedPart.dicomTransferCapability=",scope.selectedPart.dicomTransferCapability);
-            if(scope.selectedElement === 'dicomTransferCapability' && scope.selectedPart.dicomTransferCapability){
-                $log.debug("dicomTransferCapability schema=",DeviceService.getShemaTransfareCap());
-            	scope.transfareCapSchema = DeviceService.getShemaTransfareCap();
-                scope.transfareCapForm   = DeviceService.getFormTransfareCap();
-                angular.forEach(scope.wholeDevice.dicomNetworkAE,function(value1,key1) {
-                	if(value1.dicomAETitle === scope.selectedPart.dicomNetworkAE){
-		            	angular.forEach(scope.wholeDevice.dicomNetworkAE[key1].dicomTransferCapability,function(value,key) {
-		            		if(value.cn === scope.selectedPart.dicomTransferCapability){
-                                var model   = scope.wholeDevice.dicomNetworkAE[key1].dicomTransferCapability[key];
-                                // $log.debug("transfercap model=",model);
-                                scope.transfareCapModel = model;
-		         				// $log.debug("transfareCapModel set=",scope.transfareCapModel);
-		            		}
-		            	});
-                	}
-                });
-            }
-            cfpLoadingBar.complete();
-            //Warning the user if he start to change the device name
-            setTimeout(function(){
-                angular.element(document.getElementById('dicomDeviceName')).bind("click focus keydown",function(){
-                    // $log.debug("this=",this.value);
-                    // $log.debug("scope.wholeDevice=",scope.wholeDevice);
-                    if(scope.currentDevice != "CHANGE_ME"){
-                        DeviceService.msg(scope, {
-                          "title": "Warning",
-                          "text": "If you change the name of the device, on save will try the system to create another copy of the device with the new name and delete the old one.",
-                          "status": "warning",
-                          "timeout": 15000
-                        });
+                    DeviceService.setFormModel(scope);
+                    if(scope.form[scope.selectedElement] && scope.form[scope.selectedElement]["model"]){
+                        scope.dynamic_model = {};
+                        scope.dynamic_model = scope.form[scope.selectedElement]["model"];
+                    }else{
+                        scope.dynamic_model = {};
                     }
-                });
-            },1000);
-            scope.showSave = true;
+                    if(($select[scope.selectedElement].optionRef.length > 1 && $select[$select[scope.selectedElement].optionRef[1]].type === "object") || ($select[scope.selectedElement].optionRef.length === 1 && $select[$select[scope.selectedElement].optionRef[0]].type === "object")){
+                        DeviceService.createPart(scope);
+                    }
+                }
+                scope.showSave = true;
+    };
 
+    return{
+        restrict:"A",
+        templateUrl: 'templates/device_form.html',
+        link: function(scope,elm,attr) {
+
+            // DeviceService.addEmptyArrayFields(scope);
+            scope.changeNameWarning = false;
+            scope.$watch("[selectedElement,selectedPart]",function(newValue,oldValue) {
+                if(newValue[0]!=""){
+                    execute(scope,elm,attr);
+                }
+            }, true);
+            execute(scope,elm,attr);
+            cfpLoadingBar.set(cfpLoadingBar.status()+(0.2));
+            scope.form = scope.form || {};
+            scope.form[scope.selectedElement] = scope.form[scope.selectedElement] || {};
+            cfpLoadingBar.set(cfpLoadingBar.status()+(0.2));
+            scope.editMode         = true;
+            cfpLoadingBar.complete();
         }
 
     }

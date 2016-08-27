@@ -44,10 +44,12 @@ import org.dcm4chee.arc.entity.Instance;
 import org.dcm4chee.arc.entity.Patient;
 import org.dcm4chee.arc.entity.Study;
 
+import javax.servlet.http.HttpServletRequest;
 import java.util.List;
 
 /**
  * @author Gunter Zeilinger <gunterze@gmail.com>
+ * @author Vrinda Nayak <vrinda.nayak@j4care.com>
  * @since Mar 2016
  */
 public interface StudyDeleteContext {
@@ -68,4 +70,12 @@ public interface StudyDeleteContext {
     Patient getPatient();
 
     void setPatient(Patient patient);
+
+    HttpServletRequest getHttpRequest();
+
+    void setHttpRequest(HttpServletRequest request);
+
+    boolean isDeletePatientOnDeleteLastStudy();
+
+    void setDeletePatientOnDeleteLastStudy(boolean deletePatientOnDeleteLastStudy);
 }

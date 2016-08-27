@@ -45,11 +45,13 @@ import org.dcm4chee.arc.entity.Instance;
 import org.dcm4chee.arc.entity.Patient;
 import org.dcm4chee.arc.entity.Study;
 
+import javax.servlet.http.HttpServletRequest;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
  * @author Gunter Zeilinger <gunterze@gmail.com>
+ * @author Vrinda Nayak <vrinda.nayak@j4care.com>
  * @since Mar 2016
  */
 public class StudyDeleteContextImpl implements StudyDeleteContext {
@@ -59,6 +61,8 @@ public class StudyDeleteContextImpl implements StudyDeleteContext {
     private Patient patient;
     private Study study;
     private Exception exception;
+    private HttpServletRequest request;
+    private boolean deletePatientOnDeleteLastStudy;
 
     public StudyDeleteContextImpl(Long studyPk) {
         this.studyPk = studyPk;
@@ -107,5 +111,25 @@ public class StudyDeleteContextImpl implements StudyDeleteContext {
     @Override
     public void setPatient(Patient patient) {
         this.patient = patient;
+    }
+
+    @Override
+    public HttpServletRequest getHttpRequest() {
+        return request;
+    }
+
+    @Override
+    public void setHttpRequest(HttpServletRequest request) {
+        this.request = request;
+    }
+
+    @Override
+    public boolean isDeletePatientOnDeleteLastStudy() {
+        return deletePatientOnDeleteLastStudy;
+    }
+
+    @Override
+    public void setDeletePatientOnDeleteLastStudy(boolean deletePatientOnDeleteLastStudy) {
+        this.deletePatientOnDeleteLastStudy = deletePatientOnDeleteLastStudy;
     }
 }

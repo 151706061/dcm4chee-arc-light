@@ -48,34 +48,49 @@ import org.dcm4che3.util.StringUtils;
 
 import java.io.File;
 import java.util.*;
+import java.util.regex.Pattern;
 
 /**
  * @author Gunter Zeilinger <gunterze@gmail.com>
+ * @author Vrinda Nayak <vrinda.nayak@j4care.com>
  * @since Jul 2015
  */
 public class ArchiveAEExtension extends AEExtension {
+    private static final String JBOSS_SERVER_TEMP_DIR = "${jboss.server.temp.dir}";
     private String storageID;
+    private String metadataStorageID;
     private String storeAccessControlID;
     private String[] accessControlIDs = {};
     private OverwritePolicy overwritePolicy;
     private String bulkDataSpoolDirectory;
     private String queryRetrieveViewID;
-    private Boolean queryMatchUnknown;
     private Boolean personNameComponentOrderInsensitiveMatching;
     private Boolean sendPendingCGet;
     private Duration sendPendingCMoveInterval;
     private String wadoSR2HtmlTemplateURI;
     private String wadoSR2TextTemplateURI;
     private String[] mppsForwardDestinations = {};
+    private String[] ianDestinations = {};
+    private Duration ianDelay;
     private String fallbackCMoveSCP;
     private String fallbackCMoveSCPDestination;
-    private MoveForwardLevel fallbackCMoveSCPLevel;
+    private Duration ianTimeout;
+    private Boolean ianOnTimeout;
     private int fallbackCMoveSCPRetries;
     private String alternativeCMoveSCP;
     private int qidoMaxNumberOfResults;
+    private SPSStatus[] hideSPSWithStatusFromMWL = {};
+    private String fallbackCMoveSCPStudyOlderThan;
+    private String storePermissionServiceURL;
+    private Pattern storePermissionServiceResponsePattern;
+    private AllowRejectionForDataRetentionPolicyExpired allowRejectionForDataRetentionPolicyExpired;
+    private AcceptMissingPatientID acceptMissingPatientID;
+    private AllowDeleteStudyPermanently allowDeleteStudyPermanently;
+    private final LinkedHashSet<String> acceptedUserRoles = new LinkedHashSet<>();
     private final ArrayList<ExportRule> exportRules = new ArrayList<>();
     private final ArrayList<ArchiveCompressionRule> compressionRules = new ArrayList<>();
     private final ArrayList<ArchiveAttributeCoercion> attributeCoercions = new ArrayList<>();
+    private final ArrayList<StudyRetentionPolicy> studyRetentionPolicies = new ArrayList<>();
 
     public String getStorageID() {
         return storageID;
@@ -89,6 +104,20 @@ public class ArchiveAEExtension extends AEExtension {
         return storageID != null
                 ? storageID
                 : getArchiveDeviceExtension().getStorageID();
+    }
+
+    public String getMetadataStorageID() {
+        return metadataStorageID;
+    }
+
+    public void setMetadataStorageID(String metadataStorageID) {
+        this.metadataStorageID = metadataStorageID;
+    }
+
+    public String metadataStorageID() {
+        return metadataStorageID != null
+                ? metadataStorageID
+                : getArchiveDeviceExtension().getMetadataStorageID();
     }
 
     public String getStoreAccessControlID() {
@@ -121,6 +150,20 @@ public class ArchiveAEExtension extends AEExtension {
                 : StringUtils.maskNull(getArchiveDeviceExtension().getOverwritePolicy(), OverwritePolicy.NEVER);
     }
 
+    public AcceptMissingPatientID getAcceptMissingPatientID() {
+        return acceptMissingPatientID;
+    }
+
+    public void setAcceptMissingPatientID(AcceptMissingPatientID acceptMissingPatientID) {
+        this.acceptMissingPatientID = acceptMissingPatientID;
+    }
+
+    public AcceptMissingPatientID acceptMissingPatientID() {
+        return acceptMissingPatientID != null
+                ? acceptMissingPatientID
+                : StringUtils.maskNull(getArchiveDeviceExtension().getAcceptMissingPatientID(), AcceptMissingPatientID.CREATE);
+    }
+
     public String getBulkDataSpoolDirectory() {
         return bulkDataSpoolDirectory;
     }
@@ -136,7 +179,8 @@ public class ArchiveAEExtension extends AEExtension {
     }
 
     public File getBulkDataSpoolDirectoryFile() {
-        return fileOf(bulkDataSpoolDirectory());
+        return new File(StringUtils.replaceSystemProperties(
+                StringUtils.maskNull(bulkDataSpoolDirectory(), JBOSS_SERVER_TEMP_DIR)));
     }
 
     public String getQueryRetrieveViewID() {
@@ -151,20 +195,6 @@ public class ArchiveAEExtension extends AEExtension {
         return queryRetrieveViewID != null
                 ? queryRetrieveViewID
                 : getArchiveDeviceExtension().getQueryRetrieveViewID();
-    }
-
-    public Boolean getQueryMatchUnknown() {
-        return queryMatchUnknown;
-    }
-
-    public void setQueryMatchUnknown(Boolean queryMatchUnknown) {
-        this.queryMatchUnknown = queryMatchUnknown;
-    }
-
-    public boolean queryMatchUnknown() {
-        return queryMatchUnknown != null
-                ? queryMatchUnknown.booleanValue()
-                : getArchiveDeviceExtension().isQueryMatchUnknown();
     }
 
     public Boolean getPersonNameComponentOrderInsensitiveMatching() {
@@ -251,6 +281,62 @@ public class ArchiveAEExtension extends AEExtension {
                 : getArchiveDeviceExtension().getMppsForwardDestinations();
     }
 
+    public String[] getIanDestinations() {
+        return ianDestinations;
+    }
+
+    public void setIanDestinations(String... ianDestinations) {
+        this.ianDestinations = ianDestinations;
+    }
+
+    public String[] ianDestinations() {
+        return ianDestinations.length > 0
+                ? ianDestinations
+                : getArchiveDeviceExtension().getIanDestinations();
+    }
+
+    public Duration getIanDelay() {
+        return ianDelay;
+    }
+
+    public void setIanDelay(Duration ianDelay) {
+        this.ianDelay = ianDelay;
+    }
+
+    public Duration ianDelay() {
+        return ianDelay != null
+                ? ianDelay
+                : getArchiveDeviceExtension().getIanDelay();
+    }
+
+    public Duration getIanTimeout() {
+        return ianTimeout;
+    }
+
+    public void setIanTimeout(Duration ianTimeout) {
+        this.ianTimeout = ianTimeout;
+    }
+
+    public Duration ianTimeout() {
+        return ianTimeout != null
+                ? ianTimeout
+                : getArchiveDeviceExtension().getIanTimeout();
+    }
+
+    public Boolean getIanOnTimeout() {
+        return ianOnTimeout;
+    }
+
+    public void setIanOnTimeout(Boolean ianOnTimeout) {
+        this.ianOnTimeout = ianOnTimeout;
+    }
+
+    public boolean ianOnTimeout() {
+        return ianOnTimeout != null
+                ? ianOnTimeout.booleanValue()
+                : getArchiveDeviceExtension().isIanOnTimeout();
+    }
+
     public String getFallbackCMoveSCP() {
         return fallbackCMoveSCP;
     }
@@ -277,20 +363,6 @@ public class ArchiveAEExtension extends AEExtension {
         return fallbackCMoveSCPDestination != null
                 ? fallbackCMoveSCPDestination
                 : getArchiveDeviceExtension().getFallbackCMoveSCPDestination();
-    }
-
-    public MoveForwardLevel getFallbackCMoveSCPLevel() {
-        return fallbackCMoveSCPLevel;
-    }
-
-    public void setFallbackCMoveSCPLevel(MoveForwardLevel fallbackCMoveSCPLevel) {
-        this.fallbackCMoveSCPLevel = fallbackCMoveSCPLevel;
-    }
-
-    public MoveForwardLevel fallbackCMoveSCPLevel() {
-        return fallbackCMoveSCPLevel != null
-                ? fallbackCMoveSCPLevel
-                : getArchiveDeviceExtension().getFallbackCMoveSCPLevel();
     }
 
     public void setFallbackCMoveSCPRetries(int fallbackCMoveSCPRetries) {
@@ -321,6 +393,12 @@ public class ArchiveAEExtension extends AEExtension {
                 : getArchiveDeviceExtension().getAlternativeCMoveSCP();
     }
 
+    public String fallbackCMoveSCPStudyOlderThan() {
+        return fallbackCMoveSCPStudyOlderThan != null
+                ? fallbackCMoveSCPStudyOlderThan
+                : getArchiveDeviceExtension().getFallbackCMoveSCPStudyOlderThan();
+    }
+
     public int getQidoMaxNumberOfResults() {
         return qidoMaxNumberOfResults;
     }
@@ -335,8 +413,95 @@ public class ArchiveAEExtension extends AEExtension {
                 : getArchiveDeviceExtension().getQidoMaxNumberOfResults();
     }
 
+    public SPSStatus[] getHideSPSWithStatusFromMWL() {
+        return hideSPSWithStatusFromMWL;
+    }
+
+    public void setHideSPSWithStatusFromMWL(SPSStatus[] hideSPSWithStatusFromMWL) {
+        this.hideSPSWithStatusFromMWL = hideSPSWithStatusFromMWL;
+    }
+
+    public SPSStatus[] hideSPSWithStatusFromMWL() {
+        return hideSPSWithStatusFromMWL.length > 0
+                ? hideSPSWithStatusFromMWL
+                : getArchiveDeviceExtension().getHideSPSWithStatusFrom();
+    }
+
+    public String getFallbackCMoveSCPStudyOlderThan() {
+        return fallbackCMoveSCPStudyOlderThan;
+    }
+
+    public void setFallbackCMoveSCPStudyOlderThan(String fallbackCMoveSCPStudyOlderThan) {
+        this.fallbackCMoveSCPStudyOlderThan = fallbackCMoveSCPStudyOlderThan;
+    }
+
+    public String getStorePermissionServiceURL() {
+        return storePermissionServiceURL;
+    }
+
+    public void setStorePermissionServiceURL(String storePermissionServiceURL) {
+        this.storePermissionServiceURL = storePermissionServiceURL;
+    }
+
+    public String storePermissionServiceURL() {
+        return storePermissionServiceURL != null
+                ? storePermissionServiceURL
+                : getArchiveDeviceExtension().getStorePermissionServiceURL();
+    }
+
+    public Pattern getStorePermissionServiceResponsePattern() {
+        return storePermissionServiceResponsePattern;
+    }
+
+    public void setStorePermissionServiceResponsePattern(Pattern storePermissionServiceResponsePattern) {
+        this.storePermissionServiceResponsePattern = storePermissionServiceResponsePattern;
+    }
+
+    public Pattern storePermissionServiceResponsePattern() {
+        return storePermissionServiceResponsePattern != null
+                ? storePermissionServiceResponsePattern
+                : getArchiveDeviceExtension().getStorePermissionServiceResponsePattern();
+    }
+
     public QueryRetrieveView getQueryRetrieveView() {
-        return getArchiveDeviceExtension().getQueryRetrieveView(queryRetrieveViewID());
+        return getArchiveDeviceExtension().getQueryRetrieveViewNotNull(queryRetrieveViewID());
+    }
+
+    public AllowRejectionForDataRetentionPolicyExpired getAllowRejectionForDataRetentionPolicyExpired() {
+        return allowRejectionForDataRetentionPolicyExpired;
+    }
+
+    public void setAllowRejectionForDataRetentionPolicyExpired(AllowRejectionForDataRetentionPolicyExpired allowRejectionForDataRetentionPolicyExpired) {
+        this.allowRejectionForDataRetentionPolicyExpired = allowRejectionForDataRetentionPolicyExpired;
+    }
+
+    public AllowRejectionForDataRetentionPolicyExpired allowRejectionForDataRetentionPolicyExpired() {
+        return allowRejectionForDataRetentionPolicyExpired != null
+                ? allowRejectionForDataRetentionPolicyExpired
+                : StringUtils.maskNull(getArchiveDeviceExtension().getAllowRejectionForDataRetentionPolicyExpired(),
+                    AllowRejectionForDataRetentionPolicyExpired.STUDY_RETENTION_POLICY);
+    }
+
+    public String[] getAcceptedUserRoles() {
+        return acceptedUserRoles.toArray(
+                new String[acceptedUserRoles.size()]);
+    }
+
+    public void setAcceptedUserRoles(String... roles) {
+        acceptedUserRoles.clear();
+        for (String name : roles)
+            acceptedUserRoles.add(name);
+    }
+
+    public boolean isAcceptedUserRole(String... roles) {
+        if (acceptedUserRoles.isEmpty())
+            return true;
+
+        for (String role : roles)
+            if (acceptedUserRoles.contains(role))
+                return true;
+
+        return false;
     }
 
     public void removeExportRule(ExportRule rule) {
@@ -371,6 +536,22 @@ public class ArchiveAEExtension extends AEExtension {
         return compressionRules;
     }
 
+    public void removeStudyRetentionPolicies(StudyRetentionPolicy policy) {
+        studyRetentionPolicies.remove(policy);
+    }
+
+    public void clearStudyRetentionPolicy() {
+        studyRetentionPolicies.clear();
+    }
+
+    public void addStudyRetentionPolicy(StudyRetentionPolicy policy) {
+        studyRetentionPolicies.add(policy);
+    }
+
+    public Collection<StudyRetentionPolicy> getStudyRetentionPolicies() {
+        return studyRetentionPolicies;
+    }
+
     public void removeAttributeCoercion(ArchiveAttributeCoercion coercion) {
         attributeCoercions.remove(coercion);
     }
@@ -387,33 +568,60 @@ public class ArchiveAEExtension extends AEExtension {
         return attributeCoercions;
     }
 
+    public AllowDeleteStudyPermanently getAllowDeleteStudyPermanently() {
+        return allowDeleteStudyPermanently;
+    }
+
+    public void setAllowDeleteStudyPermanently(AllowDeleteStudyPermanently allowDeleteStudyPermanently) {
+        this.allowDeleteStudyPermanently = allowDeleteStudyPermanently;
+    }
+
+    public AllowDeleteStudyPermanently allowDeleteStudy() {
+        return allowDeleteStudyPermanently != null
+                ? allowDeleteStudyPermanently
+                : StringUtils.maskNull(getArchiveDeviceExtension().getAllowDeleteStudyPermanently(),
+                AllowDeleteStudyPermanently.REJECTED);
+    }
+
+
     @Override
     public void reconfigure(AEExtension from) {
         ArchiveAEExtension aeExt = (ArchiveAEExtension) from;
         storageID = aeExt.storageID;
+        metadataStorageID = aeExt.metadataStorageID;
         storeAccessControlID = aeExt.storeAccessControlID;
         accessControlIDs = aeExt.accessControlIDs;
-        storageID = aeExt.storageID;
         overwritePolicy = aeExt.overwritePolicy;
         bulkDataSpoolDirectory = aeExt.bulkDataSpoolDirectory;
         queryRetrieveViewID = aeExt.queryRetrieveViewID;
-        queryMatchUnknown = aeExt.queryMatchUnknown;
         personNameComponentOrderInsensitiveMatching = aeExt.personNameComponentOrderInsensitiveMatching;
         sendPendingCGet = aeExt.sendPendingCGet;
         sendPendingCMoveInterval = aeExt.sendPendingCMoveInterval;
         wadoSR2HtmlTemplateURI = aeExt.wadoSR2HtmlTemplateURI;
         wadoSR2TextTemplateURI = aeExt.wadoSR2TextTemplateURI;
         mppsForwardDestinations = aeExt.mppsForwardDestinations;
+        ianDestinations = aeExt.ianDestinations;
+        ianDelay = aeExt.ianDelay;
+        ianTimeout = aeExt.ianTimeout;
+        ianOnTimeout = aeExt.ianOnTimeout;
         fallbackCMoveSCP = aeExt.fallbackCMoveSCP;
         fallbackCMoveSCPDestination = aeExt.fallbackCMoveSCPDestination;
-        fallbackCMoveSCPLevel = aeExt.fallbackCMoveSCPLevel;
         fallbackCMoveSCPRetries = aeExt.fallbackCMoveSCPRetries;
         alternativeCMoveSCP = aeExt.alternativeCMoveSCP;
         qidoMaxNumberOfResults = aeExt.qidoMaxNumberOfResults;
+        hideSPSWithStatusFromMWL = aeExt.hideSPSWithStatusFromMWL;
+        fallbackCMoveSCPStudyOlderThan = aeExt.fallbackCMoveSCPStudyOlderThan;
+        storePermissionServiceURL = aeExt.storePermissionServiceURL;
+        storePermissionServiceResponsePattern = aeExt.storePermissionServiceResponsePattern;
+        allowRejectionForDataRetentionPolicyExpired = aeExt.allowRejectionForDataRetentionPolicyExpired;
+        acceptMissingPatientID = aeExt.acceptMissingPatientID;
+        allowDeleteStudyPermanently = aeExt.allowDeleteStudyPermanently;
         exportRules.clear();
         exportRules.addAll(aeExt.exportRules);
         compressionRules.clear();
         compressionRules.addAll(aeExt.compressionRules);
+        studyRetentionPolicies.clear();
+        studyRetentionPolicies.addAll(aeExt.studyRetentionPolicies);
         attributeCoercions.clear();
         attributeCoercions.addAll(aeExt.attributeCoercions);
     }
@@ -423,7 +631,12 @@ public class ArchiveAEExtension extends AEExtension {
     }
 
     public StorageDescriptor getStorageDescriptor() {
-        return getArchiveDeviceExtension().getStorageDescriptor(storageID());
+        return getArchiveDeviceExtension().getStorageDescriptorNotNull(storageID());
+    }
+
+    public StorageDescriptor getMetadataStorageDescriptor() {
+        String storageID = metadataStorageID();
+        return storageID != null ? getArchiveDeviceExtension().getStorageDescriptorNotNull(storageID) : null;
     }
 
     public Map<String, ExportRule> findExportRules(
@@ -465,7 +678,16 @@ public class ArchiveAEExtension extends AEExtension {
         return coercion1;
     }
 
-    private File fileOf(String s) {
-        return s != null ? new File(StringUtils.replaceSystemProperties(s)) : null;
+    public StudyRetentionPolicy findStudyRetentionPolicy(
+            String hostName, String sendingAET, String receivingAET, Attributes attrs) {
+        StudyRetentionPolicy policy1 = null;
+        for (Collection<StudyRetentionPolicy> policies
+                : new Collection[]{ studyRetentionPolicies, getArchiveDeviceExtension().getStudyRetentionPolicies() })
+            for (StudyRetentionPolicy policy : policies)
+                if (policy.match(hostName, sendingAET, receivingAET, attrs))
+                    if (policy1 == null || policy1.getPriority() < policy.getPriority())
+                        policy1 = policy;
+        return policy1;
     }
+
 }

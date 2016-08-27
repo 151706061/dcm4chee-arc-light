@@ -56,6 +56,8 @@ import org.slf4j.LoggerFactory;
 import javax.enterprise.context.ApplicationScoped;
 import javax.enterprise.event.Event;
 import javax.inject.Inject;
+import javax.persistence.EntityManager;
+import javax.persistence.PersistenceContext;
 import java.io.IOException;
 import java.util.Calendar;
 import java.util.Collections;
@@ -63,12 +65,16 @@ import java.util.List;
 
 /**
  * @author Gunter Zeilinger <gunterze@gmail.com>
+ * @author Vrinda Nayak <vrinda.nayak@j4care.com>
  * @since Oct 2015
  */
 @ApplicationScoped
 public class PurgeStorageScheduler extends Scheduler {
 
     private static final Logger LOG = LoggerFactory.getLogger(PurgeStorageScheduler.class);
+
+    @PersistenceContext(unitName="dcm4chee-arc")
+    private EntityManager em;
 
     @Inject
     private Device device;
@@ -81,6 +87,10 @@ public class PurgeStorageScheduler extends Scheduler {
 
     @Inject
     private Event<StudyDeleteContext> studyDeletedEvent;
+
+    protected PurgeStorageScheduler() {
+        super(Mode.scheduleWithFixedDelay);
+    }
 
     @Override
     protected Logger log() {
@@ -157,8 +167,9 @@ public class PurgeStorageScheduler extends Scheduler {
             }
             Long studyPk = studyPks.remove(0);
             StudyDeleteContextImpl ctx = new StudyDeleteContextImpl(studyPk);
+            ctx.setDeletePatientOnDeleteLastStudy(deletePatient);
             try {
-                studyRemoved = ejb.removeStudyOnStorage(ctx, deletePatient);
+                studyRemoved = ejb.removeStudyOnStorage(ctx);
                 if (studyRemoved) {
                     LOG.info("Successfully delete {} on {} from database", ctx.getStudy(), desc.getStorageURI());
                 } else {
@@ -166,12 +177,12 @@ public class PurgeStorageScheduler extends Scheduler {
                 }
                 studyDeletedEvent.fire(ctx);
             } catch (Exception e) {
-                LOG.warn("Failed to delete ", ctx.getStudy(), e);
+                LOG.warn("Failed to delete {} on {}", ctx.getStudy(), desc.getStorageURI(), e);
                 ctx.setException(e);
                 studyDeletedEvent.fire(ctx);
                 return null;
             }
-        };
+        }
         return studyPks;
     }
 

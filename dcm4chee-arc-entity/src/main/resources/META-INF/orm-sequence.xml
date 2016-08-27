@@ -58,6 +58,19 @@
     </attributes>
   </entity>
 
+  <entity class="org.dcm4chee.arc.entity.UIDMap">
+    <sequence-generator name="uidmap_pk_seq" sequence-name="uidmap_pk_seq" allocation-size="1"/>
+    <attributes>
+      <id name="pk">
+        <column name="pk"/>
+        <generated-value strategy="SEQUENCE" generator="uidmap_pk_seq"/>
+      </id>
+      <basic name="encodedMap" optional="false">
+        <column name="uidmap" column-definition="${blob}"/>
+      </basic>
+    </attributes>
+  </entity>
+
   <entity class="org.dcm4chee.arc.entity.CodeEntity">
     <sequence-generator name="code_pk_seq" sequence-name="code_pk_seq" allocation-size="1"/>
     <attributes>
@@ -88,6 +101,16 @@
     </attributes>
   </entity>
 
+  <entity class="org.dcm4chee.arc.entity.IanTask">
+    <sequence-generator name="ian_task_pk_seq" sequence-name="ian_task_pk_seq" allocation-size="1"/>
+    <attributes>
+      <id name="pk">
+        <column name="pk"/>
+        <generated-value strategy="SEQUENCE" generator="ian_task_pk_seq"/>
+      </id>
+    </attributes>
+  </entity>
+
   <entity class="org.dcm4chee.arc.entity.Instance">
     <sequence-generator name="instance_pk_seq" sequence-name="instance_pk_seq" allocation-size="1"/>
     <attributes>
@@ -108,6 +131,16 @@
     </attributes>
   </entity>
 
+  <entity class="org.dcm4chee.arc.entity.Location">
+    <sequence-generator name="location_pk_seq" sequence-name="location_pk_seq" allocation-size="1"/>
+    <attributes>
+      <id name="pk">
+        <column name="pk"/>
+        <generated-value strategy="SEQUENCE" generator="location_pk_seq"/>
+      </id>
+    </attributes>
+  </entity>
+
   <entity class="org.dcm4chee.arc.entity.MPPS">
     <sequence-generator name="mpps_pk_seq" sequence-name="mpps_pk_seq" allocation-size="1"/>
     <attributes>
@@ -118,12 +151,12 @@
     </attributes>
   </entity>
 
-  <entity class="org.dcm4chee.arc.entity.Location">
-    <sequence-generator name="location_pk_seq" sequence-name="location_pk_seq" allocation-size="1"/>
+  <entity class="org.dcm4chee.arc.entity.MWLItem">
+    <sequence-generator name="mwl_item_pk_seq" sequence-name="mwl_item_pk_seq" allocation-size="1"/>
     <attributes>
       <id name="pk">
         <column name="pk"/>
-        <generated-value strategy="SEQUENCE" generator="location_pk_seq"/>
+        <generated-value strategy="SEQUENCE" generator="mwl_item_pk_seq"/>
       </id>
     </attributes>
   </entity>
@@ -168,6 +201,16 @@
       <basic name="messageBody" optional="false">
         <column name="msg_body" updatable="false" column-definition="${blob}"/>
       </basic>
+    </attributes>
+  </entity>
+
+  <entity class="org.dcm4chee.arc.entity.ScheduledStationAETitle">
+    <sequence-generator name="sps_station_aet_pk_seq" sequence-name="sps_station_aet_pk_seq" allocation-size="1"/>
+    <attributes>
+      <id name="pk">
+        <column name="pk"/>
+        <generated-value strategy="SEQUENCE" generator="sps_station_aet_pk_seq"/>
+      </id>
     </attributes>
   </entity>
 
@@ -218,9 +261,6 @@
         <column name="pk"/>
         <generated-value strategy="SEQUENCE" generator="study_pk_seq"/>
       </id>
-      <basic name="failedSOPInstanceUIDList">
-        <column name="failed_iuids" column-definition="varchar(4000)" />
-      </basic>
     </attributes>
   </entity>
 
@@ -243,23 +283,6 @@
       </id>
     </attributes>
   </entity>
-
-  <embeddable class="org.dcm4che3.data.Code">
-    <attributes>
-      <basic name="codeValue" optional="false">
-        <column name="code_value"/>
-      </basic>
-      <basic name="codingSchemeDesignator" optional="false">
-        <column name="code_designator"/>
-      </basic>
-      <basic name="codingSchemeVersion" optional="true">
-        <column name="code_version"/>
-      </basic>
-      <basic name="codeMeaning" optional="false">
-        <column name="code_meaning"/>
-      </basic>
-    </attributes>
-  </embeddable>
 
   <embeddable class="org.dcm4che3.data.Issuer">
     <attributes>

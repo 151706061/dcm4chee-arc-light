@@ -42,12 +42,16 @@ package org.dcm4chee.arc.qido;
 
 import org.dcm4che3.net.ApplicationEntity;
 import org.dcm4che3.net.Device;
+import org.dcm4chee.arc.conf.ArchiveAEExtension;
+import org.dcm4chee.arc.conf.QueryRetrieveView;
 
 import javax.enterprise.context.RequestScoped;
 import javax.inject.Inject;
+import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.GET;
 import javax.ws.rs.Path;
 import javax.ws.rs.Produces;
+import javax.ws.rs.core.Context;
 import javax.ws.rs.core.StreamingOutput;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -56,6 +60,7 @@ import java.io.Writer;
 
 /**
  * @author Gunter Zeilinger <gunterze@gmail.com>
+ * @author Vrinda Nayak <vrinda.nayak@j4care.com>
  * @since Oct 2015
  */
 @Path("aets")
@@ -64,6 +69,11 @@ public class QueryAETs {
 
     @Inject
     private Device device;
+
+    @Context
+    private HttpServletRequest request;
+
+    private final String keycloakClassName = "org.keycloak.KeycloakSecurityContext";
 
     @GET
     @Produces("application/json")
@@ -76,24 +86,41 @@ public class QueryAETs {
                 w.write('[');
                 for (String aet : device.getApplicationAETitles()) {
                     ApplicationEntity ae = device.getApplicationEntity(aet);
-                    if (ae.isInstalled()) {
-                        if (count++ > 0)
-                            w.write(',');
-                        w.write("{\"title\":\"");
-                        w.write(aet);
-                        String desc = ae.getDescription();
-                        if (desc != null) {
-                            w.write("\",\"description\":\"");
-                            w.write(desc);
-                            w.write("\"}");
-                        } else {
-                            w.write("\",\"description\":null}");
-                        }
+                    ArchiveAEExtension arcAE = ae.getAEExtension(ArchiveAEExtension.class);
+                    if (!ae.isInstalled())
+                        continue;
+                    if (count++ > 0)
+                        w.write(',');
+                    w.write("{\"title\":\"");
+                    w.write(aet);
+                    w.write('"');
+                    String desc = ae.getDescription();
+                    if (desc != null) {
+                        w.write(",\"description\":\"");
+                        w.write(desc);
+                        w.write('"');
                     }
+                    if (ae.getAEExtension(ArchiveAEExtension.class)
+                            .getQueryRetrieveView().isHideNotRejectedInstances())
+                        w.write(",\"dcmHideNotRejectedInstances\":true");
+                    if (request.getAttribute(keycloakClassName) != null && arcAE.getAcceptedUserRoles().length != 0) {
+                        w.write(",\"dcmAcceptedUserRole\":\"");
+                        w.write(buildAcceptedUserRoles(arcAE.getAcceptedUserRoles()));
+                        w.write('"');
+                    }
+                    w.write('}');
                 }
                 w.write(']');
                 w.flush();
             }
         };
+    }
+
+    private String buildAcceptedUserRoles(String[] acceptedUserRoles) {
+        StringBuilder b = new StringBuilder();
+        b.append(acceptedUserRoles[0]);
+        for (int i = 1; i < acceptedUserRoles.length; i++)
+            b.append(',').append(acceptedUserRoles[i]);
+        return b.toString();
     }
 }

@@ -44,9 +44,11 @@ import org.dcm4che3.audit.AuditMessages;
 import org.dcm4che3.data.Attributes;
 import org.dcm4che3.data.IDWithIssuer;
 import org.dcm4che3.data.Issuer;
+import org.dcm4chee.arc.conf.AttributeFilter;
 import org.dcm4chee.arc.entity.*;
 import org.dcm4chee.arc.issuer.IssuerService;
 import org.dcm4chee.arc.patient.NonUniquePatientException;
+import org.dcm4chee.arc.patient.PatientAlreadyExistsException;
 import org.dcm4chee.arc.patient.PatientMergedException;
 import org.dcm4chee.arc.patient.PatientMgtContext;
 import org.slf4j.Logger;
@@ -56,12 +58,11 @@ import javax.ejb.Stateless;
 import javax.inject.Inject;
 import javax.persistence.EntityManager;
 import javax.persistence.PersistenceContext;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.List;
+import java.util.*;
 
 /**
  * @author Gunter Zeilinger <gunterze@gmail.com>
+ * @author Vrinda Nayak <vrinda.nayak@j4care.com>
  * @since Jul 2015
  */
 @Stateless
@@ -117,6 +118,7 @@ public class PatientServiceEJB {
         patient.setAttributes(attributes, ctx.getAttributeFilter(), ctx.getFuzzyStr());
         patient.setPatientID(createPatientID(patientID));
         em.persist(patient);
+        LOG.info("{}: Create {}", ctx, patient);
         return patient;
     }
 
@@ -131,7 +133,7 @@ public class PatientServiceEJB {
         return pat;
     }
 
-    private Patient findPatient(IDWithIssuer pid)
+    public Patient findPatient(IDWithIssuer pid)
             throws NonUniquePatientException, PatientMergedException {
         List<Patient> list = findPatients(pid);
         if (list.isEmpty())
@@ -149,11 +151,19 @@ public class PatientServiceEJB {
     }
 
     private boolean updatePatient(Patient pat, PatientMgtContext ctx) {
+        Attributes.UpdatePolicy updatePolicy = ctx.getAttributeUpdatePolicy();
+        AttributeFilter filter = ctx.getAttributeFilter();
         Attributes attrs = pat.getAttributes();
-        if (!attrs.update(ctx.getAttributes(), null))
+        Attributes newAttrs = new Attributes(ctx.getAttributes(), filter.getSelection());
+        if (updatePolicy == Attributes.UpdatePolicy.REPLACE) {
+            if (attrs.equals(newAttrs)) {
+                return false;
+            }
+            attrs = newAttrs;
+        } else if (!attrs.update(updatePolicy, newAttrs, null)) {
             return false;
-
-        pat.setAttributes(attrs, ctx.getAttributeFilter(), ctx.getFuzzyStr());
+        }
+        pat.setAttributes(attrs, filter, ctx.getFuzzyStr());
         return true;
     }
 
@@ -179,17 +189,36 @@ public class PatientServiceEJB {
     }
 
     public Patient changePatientID(PatientMgtContext ctx)
-            throws NonUniquePatientException, PatientMergedException {
+            throws NonUniquePatientException, PatientMergedException, PatientAlreadyExistsException {
         Patient pat = findPatient(ctx.getPreviousPatientID());
         if (pat == null) {
             ctx.setPreviousAttributes(null); // suppress audit message for deletion of merge patient
             return createPatient(ctx);
         }
 
-        pat.setPatientID(createPatientID(ctx.getPatientID()));
+        IDWithIssuer patientID = ctx.getPatientID();
+        Patient pat2 = findPatient(patientID);
+        if (pat2 == null)
+            pat.setPatientID(createPatientID(patientID));
+        else if (pat2 == pat)
+            updateIssuer(pat.getPatientID(), patientID.getIssuer());
+        else
+            throw new PatientAlreadyExistsException("Patient with Patient ID " + patientID + "already exists");
         updatePatient(pat, ctx);
         ctx.setEventActionCode(AuditMessages.EventActionCode.Create);
         return pat;
+    }
+
+    private void updateIssuer(PatientID patientID, Issuer issuer) {
+        if (issuer == null) {
+            patientID.setIssuer(null);
+        } else {
+            IssuerEntity entity = patientID.getIssuer();
+            if (entity == null)
+                patientID.setIssuer(issuerService.updateOrCreate(issuer));
+            else
+                entity.setIssuer(issuer);
+        }
     }
 
     public Patient findPatient(PatientMgtContext ctx) {
@@ -246,8 +275,33 @@ public class PatientServiceEJB {
         PatientID patientID = new PatientID();
         patientID.setID(idWithIssuer.getID());
         if (idWithIssuer.getIssuer() != null)
-            patientID.setIssuer(issuerService.findOrCreate(idWithIssuer.getIssuer()));
+            patientID.setIssuer(issuerService.mergeOrCreate(idWithIssuer.getIssuer()));
 
         return patientID;
+    }
+
+    public boolean deletePatientIfHasNoMergedWith(Patient patient) {
+        if (em.createNamedQuery(Patient.COUNT_BY_MERGED_WITH, Long.class)
+                .setParameter(1, patient)
+                .getSingleResult() > 0)
+            return false;
+        removeMPPSAndPatient(patient);
+        return true;
+    }
+
+    public void deletePatientFromUI(Patient patient) {
+        List<Patient> patients = em.createNamedQuery(Patient.FIND_BY_MERGED_WITH, Patient.class).setParameter(1, patient).getResultList();
+        for (Patient p : patients)
+            deletePatientFromUI(p);
+        removeMPPSAndPatient(patient);
+    }
+
+    private void removeMPPSAndPatient(Patient patient) {
+        List<MPPS> mppsList = em.createNamedQuery(MPPS.FIND_BY_PATIENT, MPPS.class)
+                .setParameter(1, patient)
+                .getResultList();
+        for (MPPS mpps : mppsList)
+            em.remove(mpps);
+        em.remove(em.contains(patient) ? patient : em.merge(patient));
     }
 }

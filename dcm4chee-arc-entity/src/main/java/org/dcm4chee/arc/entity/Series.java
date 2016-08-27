@@ -47,6 +47,8 @@ import org.dcm4che3.util.DateUtils;
 import org.dcm4chee.arc.conf.AttributeFilter;
 
 import javax.persistence.*;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
@@ -56,6 +58,7 @@ import java.util.Date;
  * @author Justin Falk <jfalkmu@gmail.com>
  * @author Gunter Zeilinger <gunterze@gmail.com>
  * @author Michael Backhaus <michael.backhaus@agfa.com>
+ * @author Vrinda Nayak <vrinda.nayak@j4care.com>
  */
 @NamedQueries({
 @NamedQuery(
@@ -64,6 +67,13 @@ import java.util.Date;
             "join se.study st " +
             "where st.studyInstanceUID = ?1 " +
             "and se.seriesInstanceUID = ?2 "),
+@NamedQuery(
+        name=Series.FIND_SERIES_OF_STUDY_BY_STUDY_IUID_EAGER,
+        query="select se from Series se " +
+                "join fetch se.study st " +
+                "join fetch se.attributesBlob " +
+                "join fetch st.attributesBlob " +
+                "where st.studyInstanceUID = ?1 "),
 @NamedQuery(
     name=Series.FIND_BY_SERIES_IUID_EAGER,
     query="select se from Series se " +
@@ -78,14 +88,52 @@ import java.util.Date;
             "where st.studyInstanceUID = ?1 " +
             "and se.seriesInstanceUID = ?2"),
 @NamedQuery(
+    name=Series.SET_FAILED_SOP_INSTANCE_UID_LIST,
+    query="update Series ser set ser.failedSOPInstanceUIDList = ?3 " +
+            "where ser.pk in (" +
+            "select ser1.pk from Series ser1 where ser1.study.studyInstanceUID = ?1 and ser1.seriesInstanceUID = ?2)"),
+@NamedQuery(
+    name=Series.SET_FAILED_SOP_INSTANCE_UID_LIST_OF_STUDY,
+    query="update Series ser set ser.failedSOPInstanceUIDList = ?2 " +
+            "where ser.pk in (" +
+            "select ser1.pk from Series ser1 where ser1.study.studyInstanceUID = ?1)"),
+@NamedQuery(
+    name=Series.INCREMENT_FAILED_RETRIEVES,
+    query="update Series ser set ser.failedRetrieves = ser.failedRetrieves + 1, ser.failedSOPInstanceUIDList = ?3 " +
+            "where ser.pk in (" +
+            "select ser1.pk from Series ser1 where ser1.study.studyInstanceUID = ?1 and ser1.seriesInstanceUID = ?2)"),
+@NamedQuery(
+    name=Series.CLEAR_FAILED_SOP_INSTANCE_UID_LIST,
+    query="update Series ser set ser.failedSOPInstanceUIDList = NULL " +
+            "where ser.pk in (" +
+            "select ser1.pk from Series ser1 where ser1.study.studyInstanceUID = ?1 and ser1.seriesInstanceUID = ?2)"),
+@NamedQuery(
+    name=Series.CLEAR_FAILED_SOP_INSTANCE_UID_LIST_OF_STUDY,
+    query="update Series ser set ser.failedSOPInstanceUIDList = NULL " +
+            "where ser.pk in (" +
+            "select ser1.pk from Series ser1 where ser1.study.studyInstanceUID = ?1)"),
+@NamedQuery(
     name=Series.COUNT_SERIES_OF_STUDY,
     query="select count(se) from Series se " +
-            "where se.study = ?1")
+            "where se.study = ?1"),
+@NamedQuery(
+        name=Series.GET_EXPIRED_SERIES,
+        query="select se from Series se " +
+             "where se.expirationDate <= ?1"),
+@NamedQuery(
+        name=Series.FIND_SERIES_OF_STUDY,
+        query = "select se from Series se " +
+                "where se.study.studyInstanceUID = ?1"),
+@NamedQuery(
+        name=Series.COUNT_SERIES_OF_STUDY_WITH_OTHER_REJECTION_STATE,
+        query="select count(se) from Series se " +
+                "where se.study = ?1 and se.rejectionState != ?2")
 })
 @Entity
 @Table(name = "series",
     uniqueConstraints = @UniqueConstraint(columnNames = { "study_fk", "series_iuid" }),
     indexes = {
+        @Index(columnList = "rejection_state"),
         @Index(columnList = "series_no"),
         @Index(columnList = "modality"),
         @Index(columnList = "station_name"),
@@ -98,13 +146,25 @@ import java.util.Date;
         @Index(columnList = "department"),
         @Index(columnList = "series_custom1"),
         @Index(columnList = "series_custom2"),
-        @Index(columnList = "series_custom3")
+        @Index(columnList = "series_custom3"),
+        @Index(columnList = "expiration_date"),
+        @Index(columnList = "failed_retrieves"),
+        @Index(columnList = "failed_iuids")
 })
 public class Series {
 
     public static final java.lang.String FIND_BY_SERIES_IUID = "Series.findBySeriesIUID";
+    public static final java.lang.String FIND_SERIES_OF_STUDY_BY_STUDY_IUID_EAGER = "Series.findSeriesOfStudyByStudyIUIDEager";
     public static final java.lang.String FIND_BY_SERIES_IUID_EAGER = "Series.findBySeriesIUIDEager";
     public static final java.lang.String COUNT_SERIES_OF_STUDY = "Series.countSeriesOfStudy";
+    public static final String SET_FAILED_SOP_INSTANCE_UID_LIST = "Series.SetFailedSOPInstanceUIDList";
+    public static final String SET_FAILED_SOP_INSTANCE_UID_LIST_OF_STUDY = "Series.SetFailedSOPInstanceUIDListOfStudy";
+    public static final String INCREMENT_FAILED_RETRIEVES = "Series.IncrementFailedRetrieves";
+    public static final String CLEAR_FAILED_SOP_INSTANCE_UID_LIST = "Series.ClearFailedSOPInstanceUIDList";
+    public static final String CLEAR_FAILED_SOP_INSTANCE_UID_LIST_OF_STUDY = "Series.ClearFailedSOPInstanceUIDListOfStudy";
+    public static final String GET_EXPIRED_SERIES = "Series.GetExpiredSeries";
+    public static final String FIND_SERIES_OF_STUDY = "Series.FindSeriesOfStudy";
+    public static final String COUNT_SERIES_OF_STUDY_WITH_OTHER_REJECTION_STATE = "Series.countSeriesOfStudyWithOtherRejectionState";
 
     @Id
     @GeneratedValue(strategy=GenerationType.IDENTITY)
@@ -125,13 +185,20 @@ public class Series {
     @Column(name = "updated_time")
     private Date updatedTime;
 
+    @Column(name = "failed_iuids", length = 4000)
+    private String failedSOPInstanceUIDList;
+
+    @Basic(optional = false)
+    @Column(name = "failed_retrieves")
+    private int failedRetrieves;
+
     @Basic(optional = false)
     @Column(name = "series_iuid", updatable = false)
     private String seriesInstanceUID;
 
     @Basic(optional = false)
     @Column(name = "series_no")
-    private String seriesNumber;
+    private Integer seriesNumber;
 
     @Basic(optional = false)
     @Column(name = "series_desc")
@@ -191,6 +258,14 @@ public class Series {
 
     @Column(name = "src_aet")
     private String sourceAET;
+
+    @Basic(optional = false)
+    @Column(name = "rejection_state")
+    private RejectionState rejectionState;
+
+    @Basic
+    @Column(name = "expiration_date")
+    private String expirationDate;
 
     @OneToOne(cascade=CascadeType.ALL, orphanRemoval = true, optional = false)
     @JoinColumn(name = "dicomattrs_fk")
@@ -252,7 +327,7 @@ public class Series {
         return seriesInstanceUID;
     }
 
-    public String getSeriesNumber() {
+    public Integer getSeriesNumber() {
         return seriesNumber;
     }
 
@@ -324,6 +399,30 @@ public class Series {
         this.sourceAET = sourceAET;
     }
 
+    public RejectionState getRejectionState() {
+        return rejectionState;
+    }
+
+    public void setRejectionState(RejectionState rejectionState) {
+        this.rejectionState = rejectionState;
+    }
+
+    public LocalDate getExpirationDate() {
+        return expirationDate != null ? LocalDate.parse(expirationDate) : null;
+    }
+
+    public void setExpirationDate(LocalDate expirationDate) {
+        this.expirationDate = expirationDate != null ? expirationDate.toString() : null;
+    }
+
+    public String getFailedSOPInstanceUIDList() {
+        return failedSOPInstanceUIDList;
+    }
+
+    public void setFailedSOPInstanceUIDList(String failedSOPInstanceUIDList) {
+        this.failedSOPInstanceUIDList = failedSOPInstanceUIDList;
+    }
+
     public CodeEntity getInstitutionCode() {
         return institutionCode;
     }
@@ -353,7 +452,7 @@ public class Series {
 
     public void setAttributes(Attributes attrs, AttributeFilter filter, FuzzyStr fuzzyStr) {
         seriesInstanceUID = attrs.getString(Tag.SeriesInstanceUID);
-        seriesNumber = attrs.getString(Tag.SeriesNumber, "*");
+        seriesNumber = getSeriesNumberAsInteger(attrs.getString(Tag.SeriesNumber));
         seriesDescription = attrs.getString(Tag.SeriesDescription, "*");
         institutionName = attrs.getString(Tag.InstitutionName, "*");
         institutionalDepartmentName = attrs.getString(Tag.InstitutionalDepartmentName, "*");
@@ -394,6 +493,16 @@ public class Series {
             attributesBlob = new AttributesBlob(new Attributes(attrs, filter.getSelection()));
         else
             attributesBlob.setAttributes(new Attributes(attrs, filter.getSelection()));
+    }
+
+    private Integer getSeriesNumberAsInteger(String seriesNumber) {
+        if (seriesNumber == null)
+            return null;
+        try {
+            return Integer.parseInt(seriesNumber);
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
 }

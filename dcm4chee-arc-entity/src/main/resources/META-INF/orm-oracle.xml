@@ -58,6 +58,19 @@
     </attributes>
   </entity>
 
+  <entity class="org.dcm4chee.arc.entity.UIDMap">
+    <sequence-generator name="uidmap_pk_seq" sequence-name="uidmap_pk_seq" allocation-size="1"/>
+    <attributes>
+      <id name="pk">
+        <column name="pk"/>
+        <generated-value strategy="SEQUENCE" generator="uidmap_pk_seq"/>
+      </id>
+      <basic name="encodedMap" optional="false">
+        <column name="uidmap" column-definition="${blob}"/>
+      </basic>
+    </attributes>
+  </entity>
+
   <entity class="org.dcm4chee.arc.entity.CodeEntity">
     <sequence-generator name="code_pk_seq" sequence-name="code_pk_seq" allocation-size="1"/>
     <attributes>
@@ -84,6 +97,16 @@
       <id name="pk">
         <column name="pk"/>
         <generated-value strategy="SEQUENCE" generator="export_task_pk_seq"/>
+      </id>
+    </attributes>
+  </entity>
+
+  <entity class="org.dcm4chee.arc.entity.IanTask">
+    <sequence-generator name="ian_task_pk_seq" sequence-name="ian_task_pk_seq" allocation-size="1"/>
+    <attributes>
+      <id name="pk">
+        <column name="pk"/>
+        <generated-value strategy="SEQUENCE" generator="ian_task_pk_seq"/>
       </id>
     </attributes>
   </entity>
@@ -124,6 +147,16 @@
       <id name="pk">
         <column name="pk"/>
         <generated-value strategy="SEQUENCE" generator="mpps_pk_seq"/>
+      </id>
+    </attributes>
+  </entity>
+
+  <entity class="org.dcm4chee.arc.entity.MWLItem">
+    <sequence-generator name="mwl_item_pk_seq" sequence-name="mwl_item_pk_seq" allocation-size="1"/>
+    <attributes>
+      <id name="pk">
+        <column name="pk"/>
+        <generated-value strategy="SEQUENCE" generator="mwl_item_pk_seq"/>
       </id>
     </attributes>
   </entity>
@@ -216,6 +249,16 @@
     </attributes>
   </entity>
 
+  <entity class="org.dcm4chee.arc.entity.ScheduledStationAETitle">
+    <sequence-generator name="sps_station_aet_pk_seq" sequence-name="sps_station_aet_pk_seq" allocation-size="1"/>
+    <attributes>
+      <id name="pk">
+        <column name="pk"/>
+        <generated-value strategy="SEQUENCE" generator="sps_station_aet_pk_seq"/>
+      </id>
+    </attributes>
+  </entity>
+
   <entity class="org.dcm4chee.arc.entity.Series">
     <sequence-generator name="series_pk_seq" sequence-name="series_pk_seq" allocation-size="1"/>
     <attributes>
@@ -275,9 +318,6 @@
       <basic name="studyDescription" optional="false">
         <column name="study_desc" column-definition="nvarchar2(255)" />
       </basic>
-      <basic name="failedSOPInstanceUIDList">
-        <column name="failed_iuids" column-definition="varchar2(4000 char)" />
-      </basic>
     </attributes>
   </entity>
 
@@ -300,23 +340,6 @@
       </id>
     </attributes>
   </entity>
-
-  <embeddable class="org.dcm4che3.data.Code">
-    <attributes>
-      <basic name="codeValue" optional="false">
-        <column name="code_value"/>
-      </basic>
-      <basic name="codingSchemeDesignator" optional="false">
-        <column name="code_designator"/>
-      </basic>
-      <basic name="codingSchemeVersion" optional="true">
-        <column name="code_version"/>
-      </basic>
-      <basic name="codeMeaning" optional="false">
-        <column name="code_meaning" column-definition="nvarchar2(255)"/>
-      </basic>
-    </attributes>
-  </embeddable>
 
   <embeddable class="org.dcm4che3.data.Issuer">
     <attributes>

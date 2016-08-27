@@ -42,12 +42,9 @@ package org.dcm4chee.arc.patient.impl;
 
 import org.dcm4che3.data.IDWithIssuer;
 import org.dcm4che3.hl7.HL7Segment;
+import org.dcm4che3.net.ApplicationEntity;
 import org.dcm4che3.net.Association;
 import org.dcm4che3.net.Device;
-import org.dcm4che3.soundex.FuzzyStr;
-import org.dcm4chee.arc.conf.ArchiveDeviceExtension;
-import org.dcm4chee.arc.conf.AttributeFilter;
-import org.dcm4chee.arc.conf.Entity;
 import org.dcm4chee.arc.entity.Patient;
 import org.dcm4chee.arc.patient.NonUniquePatientException;
 import org.dcm4chee.arc.patient.PatientMergedException;
@@ -57,11 +54,13 @@ import org.dcm4chee.arc.patient.PatientService;
 import javax.enterprise.context.ApplicationScoped;
 import javax.enterprise.event.Event;
 import javax.inject.Inject;
+import javax.servlet.http.HttpServletRequest;
 import java.net.Socket;
 import java.util.List;
 
 /**
  * @author Gunter Zeilinger <gunterze@gmail.com>
+ * @author Vrinda Nayak <vrinda.nayak@j4care.com>
  * @since Jul 2015
  */
 @ApplicationScoped
@@ -77,18 +76,33 @@ public class PatientServiceImpl implements PatientService {
     private Event<PatientMgtContext> patientMgtEvent;
 
     @Override
-    public PatientMgtContext createPatientMgtContextDICOM(Association as) {
-        return new PatientMgtContextImpl(device, as, as.getSocket(), null);
+    public PatientMgtContext createPatientMgtContextWEB(Association as) {
+        return new PatientMgtContextImpl(device, null, as, as.getApplicationEntity(), as.getSocket(), null);
+    }
+
+    @Override
+    public PatientMgtContext createPatientMgtContextWEB(HttpServletRequest httpRequest, ApplicationEntity ae) {
+        return new PatientMgtContextImpl(device, httpRequest, null, ae, null, null);
     }
 
     @Override
     public PatientMgtContext createPatientMgtContextHL7(Socket socket, HL7Segment msh) {
-        return new PatientMgtContextImpl(device, null, socket, msh);
+        return new PatientMgtContextImpl(device, null, null, null, socket, msh);
+    }
+
+    @Override
+    public PatientMgtContext createPatientMgtContextScheduler(ApplicationEntity ae) {
+        return new PatientMgtContextImpl(device, null, null, ae, null, null);
     }
 
     @Override
     public List<Patient> findPatients(IDWithIssuer pid) {
         return ejb.findPatients(pid);
+    }
+
+    @Override
+    public Patient findPatient(IDWithIssuer pid) {
+        return ejb.findPatient(pid);
     }
 
     @Override
@@ -151,16 +165,16 @@ public class PatientServiceImpl implements PatientService {
         return ejb.findPatient(ctx);
     }
 
-
-    private ArchiveDeviceExtension getArchiveDeviceExtension() {
-        return device.getDeviceExtension(ArchiveDeviceExtension.class);
+    @Override
+    public void deletePatientFromUI(PatientMgtContext ctx) {
+        ejb.deletePatientFromUI(ctx.getPatient());
+        patientMgtEvent.fire(ctx);
     }
 
-    private AttributeFilter getAttributeFilter() {
-        return getArchiveDeviceExtension().getAttributeFilter(Entity.Patient);
-    }
-
-    private FuzzyStr getFuzzyStr() {
-        return getArchiveDeviceExtension().getFuzzyStr();
+    @Override
+    public void deletePatientIfHasNoMergedWith(PatientMgtContext ctx) {
+        boolean patientDeleted = ejb.deletePatientIfHasNoMergedWith(ctx.getPatient());
+        if (patientDeleted)
+            patientMgtEvent.fire(ctx);
     }
 }

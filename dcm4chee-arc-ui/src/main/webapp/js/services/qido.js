@@ -10,8 +10,16 @@ myApp.factory('QidoService', function($http) {
         }
     };
 
+    srv.queryPatients = function(url, params) {
+        console.log("srv._config(params)",srv._config(params));
+        return $http.get(url + '/patients', srv._config(params));
+    };
+
     srv.queryStudies = function(url, params) {
         return $http.get(url + '/studies', srv._config(params));
+    };
+    srv.queryMwl = function(url, params) {
+        return $http.get(url + '/mwlitems', srv._config(params));
     };
 
     srv.querySeries = function(url, studyIUID, params) {
@@ -28,8 +36,14 @@ myApp.factory('QidoService', function($http) {
 
    // Public API
     return {
+        queryPatients: function(url, params) {
+            return srv.queryPatients(url, params);
+        },
         queryStudies: function(url, params) {
             return srv.queryStudies(url, params);
+        },
+        queryMwl: function(url, params) {
+            return srv.queryMwl(url, params);
         },
         querySeries: function(url, studyIUID, params) {
             return srv.querySeries(url, studyIUID, params);

@@ -43,9 +43,11 @@ package org.dcm4chee.arc.retrieve;
 import org.dcm4che3.data.IDWithIssuer;
 import org.dcm4che3.net.ApplicationEntity;
 import org.dcm4che3.net.Association;
+import org.dcm4che3.net.service.QueryRetrieveLevel2;
 import org.dcm4chee.arc.conf.ArchiveAEExtension;
 import org.dcm4chee.arc.conf.QueryRetrieveView;
 import org.dcm4chee.arc.entity.CodeEntity;
+import org.dcm4chee.arc.entity.Location;
 import org.dcm4chee.arc.storage.Storage;
 
 import javax.servlet.http.HttpServletRequest;
@@ -61,9 +63,17 @@ public interface RetrieveContext extends Closeable {
 
     void setRequestAssociation(Association requestAssociation);
 
+    QueryRetrieveLevel2 getQueryRetrieveLevel();
+
+    void setQueryRetrieveLevel(QueryRetrieveLevel2 qrLevel);
+
     Association getStoreAssociation();
 
     void setStoreAssociation(Association storeAssociation);
+
+    Association getForwardAssociation();
+
+    void setForwardAssociation(Association fwdas);
 
     HttpServletRequest getHttpRequest();
 
@@ -97,6 +107,8 @@ public interface RetrieveContext extends Closeable {
 
     void setDestinationAETitle(String destinationAETitle);
 
+    ApplicationEntity getDestinationAE();
+
     void setDestinationAE(ApplicationEntity remoteAE);
 
     Throwable getException();
@@ -119,9 +131,13 @@ public interface RetrieveContext extends Closeable {
 
     void setPatientIDs(IDWithIssuer... patientIDs);
 
+    String getStudyInstanceUID();
+
     String[] getStudyInstanceUIDs();
 
     void setStudyInstanceUIDs(String... studyInstanceUIDs);
+
+    String getSeriesInstanceUID();
 
     String[] getSeriesInstanceUIDs();
 
@@ -131,9 +147,15 @@ public interface RetrieveContext extends Closeable {
 
     void setSopInstanceUIDs(String... sopInstanceUIDs);
 
+    Location.ObjectType getObjectType();
+
+    void setObjectType(Location.ObjectType objectType);
+
     Collection<InstanceLocations> getMatches();
 
     Collection<StudyInfo> getStudyInfos();
+
+    Collection<SeriesInfo> getSeriesInfos();
 
     int getNumberOfMatches();
 
@@ -145,9 +167,13 @@ public interface RetrieveContext extends Closeable {
 
     void incrementCompleted();
 
+    void addCompleted(int delta);
+
     int warning();
 
     void incrementWarning();
+
+    void addWarning(int delta);
 
     int failed();
 
@@ -172,4 +198,12 @@ public interface RetrieveContext extends Closeable {
     CodeEntity[] getHideRejectionNotesWithCode();
 
     void setHideRejectionNotesWithCode(CodeEntity[] hideRejectionNotesWithCode);
+
+    void incrementPendingCStoreForward();
+
+    void decrementPendingCStoreForward();
+
+    void waitForPendingCStoreForward() throws InterruptedException;
+
+    void addMatch(InstanceLocations inst);
 }

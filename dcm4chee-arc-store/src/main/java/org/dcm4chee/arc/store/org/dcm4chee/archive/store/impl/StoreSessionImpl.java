@@ -1,5 +1,6 @@
 package org.dcm4chee.arc.store.org.dcm4chee.archive.store.impl;
 
+import org.dcm4che3.hl7.HL7Segment;
 import org.dcm4che3.net.ApplicationEntity;
 import org.dcm4che3.net.Association;
 import org.dcm4che3.util.SafeClose;
@@ -7,34 +8,41 @@ import org.dcm4chee.arc.conf.ArchiveAEExtension;
 import org.dcm4chee.arc.conf.OverwritePolicy;
 import org.dcm4chee.arc.entity.Series;
 import org.dcm4chee.arc.entity.Study;
+import org.dcm4chee.arc.entity.UIDMap;
 import org.dcm4chee.arc.storage.Storage;
 import org.dcm4chee.arc.store.StoreSession;
 
 import javax.servlet.http.HttpServletRequest;
 import java.io.IOException;
+import java.net.Socket;
 import java.util.HashMap;
 import java.util.Map;
 
 /**
  * @author Gunter Zeilinger <gunterze@gmail.com>
+ * @author Vrinda Nayak <vrinda.nayak@j4care.com>
  * @since Jul 2015
  */
 class StoreSessionImpl implements StoreSession {
-    private Association as;
-    private HttpServletRequest httpRequest;
+    private final Association as;
+    private final HttpServletRequest httpRequest;
     private final ApplicationEntity ae;
-    private Storage storage;
+    private final Socket socket;
+    private final HL7Segment msh;
+    private final Map<String, Storage> storageMap = new HashMap<>();
     private Study cachedStudy;
     private final Map<String,Series> seriesCache = new HashMap<>();
+    private Map<Long,UIDMap> uidMapCache = new HashMap<>();
+    private Map<String, String> uidMap;
 
-    public StoreSessionImpl(Association as) {
-        this.as = as;
-        this.ae = as.getApplicationEntity();
-    }
-
-    public StoreSessionImpl(HttpServletRequest httpRequest, ApplicationEntity ae) {
+    StoreSessionImpl(HttpServletRequest httpRequest, Association as, ApplicationEntity ae,
+                            Socket socket, HL7Segment msh) {
         this.httpRequest = httpRequest;
+        this.as = as;
         this.ae = ae;
+        this.socket = socket;
+        this.msh = msh;
+        this.uidMapCache = new HashMap<>();
     }
 
     @Override
@@ -48,6 +56,16 @@ class StoreSessionImpl implements StoreSession {
     }
 
     @Override
+    public Socket getSocket() {
+        return socket;
+    }
+
+    @Override
+    public HL7Segment getHL7MessageHeader() {
+        return msh;
+    }
+
+    @Override
     public ApplicationEntity getLocalApplicationEntity() {
         return ae;
     }
@@ -58,13 +76,13 @@ class StoreSessionImpl implements StoreSession {
     }
 
     @Override
-    public Storage getStorage() {
-        return storage;
+    public Storage getStorage(String storageID) {
+        return storageMap.get(storageID);
     }
 
     @Override
-    public void setStorage(Storage storage) {
-        this.storage = storage;
+    public void putStorage(String storageID, Storage storage) {
+        storageMap.put(storageID, storage);
     }
 
     @Override
@@ -74,12 +92,14 @@ class StoreSessionImpl implements StoreSession {
 
     @Override
     public String getCallingAET() {
-        return as != null ? as.getCallingAET() : null;
+        return as != null ? as.getCallingAET() : msh != null ? msh.getSendingApplicationWithFacility() : null;
     }
 
     @Override
     public String getRemoteHostName() {
-        return httpRequest != null ? httpRequest.getRemoteHost() : as.getSocket().getInetAddress().getHostName();
+        return httpRequest != null ? httpRequest.getRemoteHost()
+                : socket != null ? socket.getInetAddress().getHostName()
+                : null;
     }
 
     @Override
@@ -108,14 +128,31 @@ class StoreSessionImpl implements StoreSession {
 
     @Override
     public void close() throws IOException {
-        SafeClose.close(storage);
+        for (Storage storage : storageMap.values())
+            SafeClose.close(storage);
+    }
+
+    @Override
+    public Map<Long, UIDMap> getUIDMapCache() {
+        return uidMapCache;
+    }
+
+    @Override
+    public Map<String, String> getUIDMap() {
+        return uidMap;
+    }
+
+    @Override
+    public void setUIDMap(Map<String, String> uidMap) {
+        this.uidMap = uidMap;
     }
 
     @Override
     public String toString() {
-        if (as != null)
-            return as.toString();
-
-        return httpRequest.getRemoteUser() + '@' + httpRequest.getRemoteHost() + "->" + ae.getAETitle();
+        return httpRequest != null
+                ? httpRequest.getRemoteUser() + '@' + httpRequest.getRemoteHost() + "->" + ae.getAETitle()
+                : as != null ? as.toString()
+                : msh != null ? msh.toString()
+                : ae.getAETitle();
     }
 }

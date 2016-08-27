@@ -48,6 +48,7 @@ import org.dcm4chee.arc.entity.CodeEntity;
 
 /**
  * @author Gunter Zeilinger <gunterze@gmail.com>
+ * @author Vrinda Nayak <vrinda.nayak@j4care.com>
  * @since Aug 2015
  */
 public class QueryParam {
@@ -55,17 +56,34 @@ public class QueryParam {
     private final ArchiveAEExtension arcAE;
     private final boolean combinedDatetimeMatching;
     private final boolean fuzzySemanticMatching;
+    private final boolean returnEmpty;
+    private final boolean expired;
+    private final boolean expiredSeries;
     private final QueryRetrieveView qrView;
     private CodeEntity[] showInstancesRejectedByCode = {};
     private CodeEntity[] hideRejectionNotesWithCode = {};
+    private final boolean withoutStudies;
+    private final boolean incomplete;
+    private final boolean incompleteSeries;
+    private final boolean retrieveFailed;
+    private final boolean retrieveFailedSeries;
 
-
-    public QueryParam(ApplicationEntity ae, boolean combinedDatetimeMatching, boolean fuzzySemanticMatching) {
+    public QueryParam(ApplicationEntity ae, boolean combinedDatetimeMatching, boolean fuzzySemanticMatching,
+                      boolean returnEmpty, boolean expired, boolean expiredSeries, boolean withoutStudies,
+                      boolean incomplete, boolean incompleteSeries, boolean retrieveFailed, boolean retrieveFailedSeries) {
         this.arcAE = ae.getAEExtension(ArchiveAEExtension.class);
         this.arcDev = arcAE.getArchiveDeviceExtension();
         this.qrView = arcAE.getQueryRetrieveView();
         this.combinedDatetimeMatching = combinedDatetimeMatching;
         this.fuzzySemanticMatching = fuzzySemanticMatching;
+        this.returnEmpty = returnEmpty;
+        this.expired = expired;
+        this.expiredSeries = expiredSeries;
+        this.withoutStudies = withoutStudies;
+        this.incomplete = incomplete;
+        this.incompleteSeries = incompleteSeries;
+        this.retrieveFailed = retrieveFailed;
+        this.retrieveFailedSeries = retrieveFailedSeries;
     }
 
     public String getAETitle() {
@@ -76,23 +94,33 @@ public class QueryParam {
         return arcAE.getAccessControlIDs();
     }
 
-    public boolean isMatchUnknown() {
-        return arcAE.queryMatchUnknown();
+    public SPSStatus[] getHideSPSWithStatusFromMWL() {
+        return arcAE.hideSPSWithStatusFromMWL();
     }
 
     public boolean isFuzzySemanticMatching() {
         return fuzzySemanticMatching;
     }
 
+    public boolean isReturnEmpty() {
+        return returnEmpty;
+    }
+
+    public boolean isExpired() {
+        return expired;
+    }
+
+    public boolean isExpiredSeries() {
+        return expiredSeries;
+    }
+
     public FuzzyStr getFuzzyStr() {
         return arcDev.getFuzzyStr();
     }
 
-
     public boolean isPersonNameComponentOrderInsensitiveMatching() {
         return arcAE.personNameComponentOrderInsensitiveMatching();
     }
-
 
     public CodeEntity[] getShowInstancesRejectedByCode() {
         return showInstancesRejectedByCode;
@@ -134,4 +162,23 @@ public class QueryParam {
         return null;
     }
 
+    public boolean isWithoutStudies() {
+        return withoutStudies;
+    }
+
+    public boolean isIncomplete() {
+        return incomplete;
+    }
+
+    public boolean isIncompleteSeries() {
+        return incompleteSeries;
+    }
+
+    public boolean isRetrieveFailed() {
+        return retrieveFailed;
+    }
+
+    public boolean isRetrieveFailedSeries() {
+        return retrieveFailedSeries;
+    }
 }

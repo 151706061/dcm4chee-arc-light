@@ -11,6 +11,7 @@ import javax.json.stream.JsonParser;
 
 /**
  * @author Gunter Zeilinger <gunterze@gmail.com>
+ * @author Vrinda Nayak <vrinda.nayak@j4care.com>
  * @since Jan 2016
  */
 public class JsonArchivHL7Configuration implements JsonHL7ConfigurationExtension {
@@ -22,6 +23,12 @@ public class JsonArchivHL7Configuration implements JsonHL7ConfigurationExtension
 
         writer.writeStartObject("dcmArchiveHL7Application");
         writer.writeNotNull("hl7PatientUpdateTemplateURI", ext.getPatientUpdateTemplateURI());
+        writer.writeNotNull("hl7ImportReportTemplateURI", ext.getImportReportTemplateURI());
+        writer.writeNotNull("hl7ScheduleProcedureTemplateURI", ext.getScheduleProcedureTemplateURI());
+        writer.writeNotNull("hl7LogFilePattern", ext.getHl7LogFilePattern());
+        writer.writeNotNull("hl7ErrorLogFilePattern", ext.getHl7ErrorLogFilePattern());
+        writer.writeNotNull("dicomAETitle", ext.getAETitle());
+        JsonArchiveConfiguration.writeHL7ForwardRules(writer, ext.getHL7ForwardRules());
         writer.writeEnd();
     }
 
@@ -44,6 +51,25 @@ public class JsonArchivHL7Configuration implements JsonHL7ConfigurationExtension
             switch (reader.getString()) {
                 case "hl7PatientUpdateTemplateURI":
                     ext.setPatientUpdateTemplateURI(reader.stringValue());
+                    break;
+                case "hl7ImportReportTemplateURI":
+                    ext.setImportReportTemplateURI(reader.stringValue());
+                    break;
+                case "hl7ScheduleProcedureTemplateURI":
+                    ext.setScheduleProcedureTemplateURI(reader.stringValue());
+                    break;
+                case "hl7LogFilePattern":
+                    ext.setHl7LogFilePattern(reader.stringValue());
+                    break;
+                case "hl7ErrorLogFilePattern":
+                    ext.setHl7ErrorLogFilePattern(reader.stringValue());
+                    break;
+                case "dicomAETitle":
+                    ext.setAETitle(reader.stringValue());
+                    break;
+                case "hl7ForwardRule":
+                    JsonArchiveConfiguration.loadHL7ForwardRules(ext.getHL7ForwardRules(), reader);
+                    break;
                 default:
                     reader.skipUnknownProperty();
             }

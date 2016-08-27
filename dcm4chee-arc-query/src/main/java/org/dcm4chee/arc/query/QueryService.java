@@ -45,6 +45,7 @@ import org.dcm4che3.net.ApplicationEntity;
 import org.dcm4che3.net.Association;
 import org.dcm4che3.net.QueryOption;
 import org.dcm4che3.net.service.QueryRetrieveLevel2;
+import org.dcm4chee.arc.conf.RejectionNote;
 import org.dcm4chee.arc.entity.SeriesQueryAttributes;
 import org.dcm4chee.arc.entity.StudyQueryAttributes;
 import org.dcm4chee.arc.query.util.QueryParam;
@@ -55,15 +56,19 @@ import java.util.EnumSet;
 
 /**
  * @author Gunter Zeilinger <gunterze@gmail.com>
+ * @author Vrinda Nayak <vrinda.nayak@j4care.com>
  * @since Aug 2015
  */
 public interface QueryService {
 
     QueryContext newQueryContextFIND(Association as, String sopClassUID, EnumSet<QueryOption> queryOpts);
 
-    QueryContext newQueryContextQIDO(HttpServletRequest httpRequest, ApplicationEntity ae, boolean fuzzyMatching);
+    QueryContext newQueryContextQIDO(
+            HttpServletRequest httpRequest, String searchMethod, ApplicationEntity ae,
+            boolean fuzzyMatching, boolean returnEmpty, boolean expired, boolean expiredSeries, boolean withoutStudies,
+            boolean incomplete, boolean incompleteSeries, boolean retrieveFailed, boolean retrieveFailedSeries);
 
-    Query createQuery(QueryRetrieveLevel2 qrLevel, QueryContext ctx);
+    Query createQuery(QueryContext ctx, QueryRetrieveLevel2 qrLevel);
 
     Query createPatientQuery(QueryContext ctx);
 
@@ -72,6 +77,8 @@ public interface QueryService {
     Query createSeriesQuery(QueryContext ctx);
 
     Query createInstanceQuery(QueryContext ctx);
+
+    Query createMWLQuery(QueryContext ctx);
 
     Attributes getSeriesAttributes(Long seriesPk, QueryParam queryParam);
 
@@ -83,5 +90,11 @@ public interface QueryService {
             String studyUID, ApplicationEntity ae, Collection<Attributes> seriesAttrs);
 
     Attributes getStudyAttributesWithSOPInstanceRefs(
-            String studyUID, String seriesUID, String objectUID, ApplicationEntity ae);
+            String studyUID, String seriesUID, String objectUID, ApplicationEntity ae, boolean availability);
+
+    Attributes createRejectionNote(
+            ApplicationEntity ae, String studyUID, String seriesUID, String objectUID, RejectionNote rjNote);
+
+    Attributes createRejectionNote(Attributes sopInstanceRefs, RejectionNote rjNote);
+
 }

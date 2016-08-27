@@ -41,10 +41,13 @@
 package org.dcm4chee.arc.code.impl;
 
 import org.dcm4che3.data.Code;
+import org.dcm4che3.util.StringUtils;
 import org.dcm4chee.arc.code.CodeService;
 import org.dcm4chee.arc.entity.CodeEntity;
 
 import javax.ejb.Stateless;
+import javax.ejb.TransactionAttribute;
+import javax.ejb.TransactionAttributeType;
 import javax.persistence.EntityManager;
 import javax.persistence.NoResultException;
 import javax.persistence.PersistenceContext;
@@ -52,9 +55,11 @@ import javax.persistence.TypedQuery;
 
 /**
  * @author Gunter Zeilinger <gunterze@gmail.com>
+ * @author Vrinda Nayak <vrinda.nayak@j4care.com>
  * @since Jul 2015
  */
 @Stateless
+@TransactionAttribute(TransactionAttributeType.REQUIRES_NEW)
 public class CodeServiceEJB implements CodeService {
 
     @PersistenceContext(unitName="dcm4chee-arc")
@@ -67,21 +72,18 @@ public class CodeServiceEJB implements CodeService {
         } catch (NoResultException e) {
             CodeEntity entity = new CodeEntity(code);
             em.persist(entity);
+            em.flush();
             return entity;
         }
     }
 
     private CodeEntity find(Code code) {
-        String codingSchemeVersion = code.getCodingSchemeVersion();
         TypedQuery<CodeEntity> query = em.createNamedQuery(
-                codingSchemeVersion == null
-                        ? CodeEntity.FIND_BY_CODE_VALUE_WITHOUT_SCHEME_VERSION
-                        : CodeEntity.FIND_BY_CODE_VALUE_WITH_SCHEME_VERSION,
+                CodeEntity.FIND_BY_CODE_VALUE_WITH_SCHEME_VERSION,
                 CodeEntity.class)
                 .setParameter(1, code.getCodeValue())
-                .setParameter(2, code.getCodingSchemeDesignator());
-        if (codingSchemeVersion != null)
-            query.setParameter(3, codingSchemeVersion);
+                .setParameter(2, code.getCodingSchemeDesignator())
+                .setParameter(3, StringUtils.maskNull(code.getCodingSchemeVersion(), "*"));
         return query.getSingleResult();
     }
 }

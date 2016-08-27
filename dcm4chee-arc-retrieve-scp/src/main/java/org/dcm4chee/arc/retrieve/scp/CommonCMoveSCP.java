@@ -40,6 +40,8 @@
 
 package org.dcm4chee.arc.retrieve.scp;
 
+import org.dcm4che3.conf.api.ConfigurationException;
+import org.dcm4che3.conf.api.ConfigurationNotFoundException;
 import org.dcm4che3.data.Attributes;
 import org.dcm4che3.data.Tag;
 import org.dcm4che3.data.VR;
@@ -51,15 +53,9 @@ import org.dcm4che3.net.service.BasicCMoveSCP;
 import org.dcm4che3.net.service.DicomServiceException;
 import org.dcm4che3.net.service.QueryRetrieveLevel2;
 import org.dcm4che3.net.service.RetrieveTask;
-import org.dcm4che3.util.StringUtils;
 import org.dcm4chee.arc.conf.ArchiveAEExtension;
-import org.dcm4chee.arc.conf.MoveForwardLevel;
-import org.dcm4chee.arc.retrieve.InstanceLocations;
-import org.dcm4chee.arc.retrieve.RetrieveContext;
-import org.dcm4chee.arc.retrieve.RetrieveService;
-import org.dcm4chee.arc.retrieve.StudyInfo;
+import org.dcm4chee.arc.retrieve.*;
 import org.dcm4chee.arc.retrieve.scu.CMoveSCU;
-import org.dcm4chee.arc.retrieve.scu.ForwardRetrieveTask;
 import org.dcm4chee.arc.store.scu.CStoreSCU;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -74,7 +70,6 @@ import java.util.*;
 class CommonCMoveSCP extends BasicCMoveSCP {
 
     private static final Logger LOG = LoggerFactory.getLogger(CommonCMoveSCP.class);
-    private static final int MAX_FAILED_IUIDS_LEN = 4000;
 
     private final EnumSet<QueryRetrieveLevel2> qrLevels;
 
@@ -98,209 +93,168 @@ class CommonCMoveSCP extends BasicCMoveSCP {
         EnumSet<QueryOption> queryOpts = as.getQueryOptionsFor(rq.getString(Tag.AffectedSOPClassUID));
         QueryRetrieveLevel2 qrLevel = QueryRetrieveLevel2.validateRetrieveIdentifier(
                 keys, qrLevels, queryOpts.contains(QueryOption.RELATIONAL));
-        RetrieveContext ctx = retrieveService.newRetrieveContextMOVE(as, rq, qrLevel, keys);
+        RetrieveContext ctx = newRetrieveContext(as, rq, qrLevel, keys);
         ArchiveAEExtension arcAE = ctx.getArchiveAEExtension();
-        ArrayList<String> failedIUIDs = new ArrayList<>();
         String fallbackCMoveSCP = arcAE.fallbackCMoveSCP();
         String fallbackCMoveSCPDestination = arcAE.fallbackCMoveSCPDestination();
-        MoveForwardLevel moveForwardLevel = arcAE.fallbackCMoveSCPLevel();
         if (!retrieveService.calculateMatches(ctx)) {
             if (fallbackCMoveSCP == null)
                 return null;
 
-            if (fallbackCMoveSCPDestination == null) {
-                LOG.info("{}: No objects of study{} found - forward C-MOVE RQ to {}",
-                        as, Arrays.toString(ctx.getStudyInstanceUIDs()), fallbackCMoveSCP);
-                return moveSCU.newForwardRetrieveTask(ctx.getLocalApplicationEntity(), as, pc, rq, keys,
-                        as.getCallingAET(), fallbackCMoveSCP, true, true);
-            }
-
-            if (retrieveFrom(ctx, pc, rq, keys, failedIUIDs) == 0)
-                return null;
-
-            retrieveService.calculateMatches(ctx);
-        } else {
-            if (fallbackCMoveSCP != null
-                    && fallbackCMoveSCPDestination != null
-                    && moveForwardLevel == MoveForwardLevel.STUDY) {
-                int totRetrieved = 0;
-                for (StudyInfo studyInfo : ctx.getStudyInfos()) {
-                    if (studyInfo.getFailedSOPInstanceUIDList() != null)
-                        totRetrieved += retryRetrieveFrom(ctx, pc, rq, studyInfo, failedIUIDs);
-                }
-                if (totRetrieved > 0)
-                    retrieveService.calculateMatches(ctx);
-            }
+            LOG.info("{}: No objects of study{} found - forward C-MOVE RQ to {}",
+                    as, Arrays.toString(ctx.getStudyInstanceUIDs()), fallbackCMoveSCP);
+            return fallbackCMoveSCPDestination == null
+                    ? moveSCU.newForwardRetrieveTask(ctx, pc, rq, keys, fallbackCMoveSCP)
+                    : moveSCU.newForwardRetrieveTask(ctx, pc, rq, keys, fallbackCMoveSCP,
+                        fallbackCMoveSCPDestination);
+        } else if (fallbackCMoveSCP != null && fallbackCMoveSCPDestination != null
+                && retryFailedRetrieve(ctx, qrLevel)) {
+            LOG.info("{}: Some objects of study{} not found - retry forward C-MOVE RQ to {}",
+                    as, Arrays.toString(ctx.getStudyInstanceUIDs()), fallbackCMoveSCP);
+            return moveSCU.newForwardRetrieveTask(ctx, pc, rq, keys, fallbackCMoveSCP,
+                    fallbackCMoveSCPDestination);
         }
 
         String altCMoveSCP = arcAE.alternativeCMoveSCP();
         if (altCMoveSCP != null) {
             Collection<InstanceLocations> notAccessable = retrieveService.removeNotAccessableMatches(ctx);
             if (ctx.getMatches().isEmpty()) {
-                LOG.info("{}: Requested objects not locally accessable - forward C-MOVE RQ to {}",
-                        as, altCMoveSCP);
-                return moveSCU.newForwardRetrieveTask(ctx.getLocalApplicationEntity(), as, pc, rq, keys,
-                        as.getCallingAET(), altCMoveSCP, true, true);
+                LOG.info("{}: No objects of study{} locally accessable - forward C-MOVE RQ to {}",
+                        as, Arrays.toString(ctx.getStudyInstanceUIDs()), altCMoveSCP);
+                return moveSCU.newForwardRetrieveTask(ctx, pc, rq, keys, altCMoveSCP);
             }
 
             if (!notAccessable.isEmpty()) {
-                LOG.warn("{}: {} of {} requested objects not locally accessable",
-                        as, notAccessable.size(), ctx.getNumberOfMatches());
-                for (InstanceLocations remoteMatch : notAccessable)
-                    ctx.addFailedSOPInstanceUID(remoteMatch.getSopInstanceUID());
-            }
-        }
-        if (!failedIUIDs.isEmpty()) {
-            if (ctx.getSopInstanceUIDs().length > 0)
-                failedIUIDs.retainAll(Arrays.asList(ctx.getSopInstanceUIDs()));
-            ctx.incrementNumberOfMatches(failedIUIDs.size());
-            for (String failedIUID : failedIUIDs) {
-                ctx.addFailedSOPInstanceUID(failedIUID);
+                Set<SeriesKey> localSeries = seriesOf(ctx.getMatches());
+                Map<SeriesKey, Collection<String>> remoteSeries = instancesBySeriesOf(notAccessable);
+                LOG.info("{}: {} objects of study{} not locally accessable - send {} C-MOVE RQs to {}",
+                        as, notAccessable.size(), Arrays.toString(ctx.getStudyInstanceUIDs()), remoteSeries.size(),
+                        altCMoveSCP);
+                try {
+                    moveSCU.forwardMoveRQs(ctx, pc, rq, toKeys(remoteSeries, localSeries), altCMoveSCP);
+                } catch (Exception e) {
+                    for (InstanceLocations inst: notAccessable) {
+                        ctx.addFailedSOPInstanceUID(inst.getSopInstanceUID());
+                    }
+                }
             }
         }
         return storeSCU.newRetrieveTaskMOVE(as, pc, rq, ctx);
     }
 
-    private int retrieveFrom(RetrieveContext ctx, PresentationContext pc, Attributes rq, Attributes keys,
-                             Collection<String> failedIUIDs) throws DicomServiceException {
-        Association as = ctx.getRequestAssociation();
-        ArchiveAEExtension arcAE = ctx.getArchiveAEExtension();
-        String fallbackCMoveSCP = arcAE.fallbackCMoveSCP();
-        LOG.info("{}: No objects of study{} found - try to retrieve requested objects from {}",
-                as, Arrays.toString(ctx.getStudyInstanceUIDs()), fallbackCMoveSCP);
-        ForwardRetrieveTask retrieveTask = moveSCU.newForwardRetrieveTask(
-                ctx.getLocalApplicationEntity(), as, pc,
-                changeMoveDestination(rq, arcAE.fallbackCMoveSCPDestination()),
-                changeQueryRetrieveLevel(keys, arcAE.fallbackCMoveSCPLevel()),
-                as.getCallingAET(), fallbackCMoveSCP, false, false);
-        retrieveTask.run();
-        Attributes rsp = retrieveTask.getFinalMoveRSP();
-        Attributes rspData = retrieveTask.getFinalMoveRSPData();
-        int finalMoveRSPStatus = rsp.getInt(Tag.Status, -1);
-        if (finalMoveRSPStatus != Status.Success && finalMoveRSPStatus != Status.OneOrMoreFailures)
-            throw (new DicomServiceException(finalMoveRSPStatus, rsp.getString(Tag.ErrorComment))
-                    .setDataset(rspData));
+    private Set<SeriesKey> seriesOf(Collection<InstanceLocations> instances) {
+        Set<SeriesKey> series = new HashSet<>();
+        for (InstanceLocations instance : instances)
+            series.add(new SeriesKey(instance.getAttributes()));
+        return series;
+    }
 
-        int failed = rsp.getInt(Tag.NumberOfFailedSuboperations, 0);
-        int retrieved = rsp.getInt(Tag.NumberOfCompletedSuboperations, 0) +
-                rsp.getInt(Tag.NumberOfWarningSuboperations, 0);
-        if (failed == 0)
-            return retrieved;
-
-        String failedIUIDList = failedToRetrieve(ctx, failed, retrieved, rspData, "*", failedIUIDs);
-        if (arcAE.fallbackCMoveSCPLevel() == MoveForwardLevel.STUDY) {
-            for (String studyInstanceUID : ctx.getStudyInstanceUIDs()) {
-                retrieveService.failedToRetrieveStudy(studyInstanceUID, failedIUIDList);
+    private Map<SeriesKey, Collection<String>> instancesBySeriesOf(Collection<InstanceLocations> instances) {
+        Map<SeriesKey, Collection<String>> series = new HashMap<>();
+        for (InstanceLocations instance : instances) {
+            SeriesKey seriesKey = new SeriesKey(instance.getAttributes());
+            Collection<String> iuids = series.get(seriesKey);
+            if (iuids == null) {
+                iuids = new ArrayList<>(instances.size());
+                series.put(seriesKey, iuids);
             }
+            iuids.add(instance.getSopInstanceUID());
         }
-        return retrieved;
+        return series;
     }
 
-    private String failedToRetrieve(RetrieveContext ctx, int failed, int retrieved, Attributes data, String def,
-                                    Collection<String> failedIUIDs) {
-        Association as = ctx.getRequestAssociation();
-        ArchiveAEExtension arcAE = ctx.getArchiveAEExtension();
-        String fallbackCMoveSCP = arcAE.fallbackCMoveSCP();
-        LOG.warn("{}: Failed to retrieve {} from {} objects of study{} from {}",
-                as, failed, failed + retrieved,
-                Arrays.toString(ctx.getStudyInstanceUIDs()), fallbackCMoveSCP);
-        String[] failedSOPInstanceUIDList = data != null
-                ? data.getStrings(Tag.FailedSOPInstanceUIDList)
-                : null;
-        if (failedSOPInstanceUIDList == null || failedSOPInstanceUIDList.length == 0) {
-            LOG.warn("{}: Missing Failed SOP Instance UID List in C-MOVE-RSP from {}", as, fallbackCMoveSCP);
-            return def;
+    private Attributes[] toKeys(Map<SeriesKey, Collection<String>> remoteSeries, Set<SeriesKey> localSeries) {
+        Attributes[] keys = new Attributes[remoteSeries.size()];
+        int i = 0;
+        for (Map.Entry<SeriesKey, Collection<String>> entry : remoteSeries.entrySet()) {
+            SeriesKey seriesKey = entry.getKey();
+            keys[i++] = seriesKey.makeKeys(
+                    localSeries.contains(seriesKey) ? QueryRetrieveLevel2.IMAGE : QueryRetrieveLevel2.SERIES,
+                    entry.getValue());
         }
-        if (failedSOPInstanceUIDList.length != failed) {
-            LOG.warn("{}: Number Of Failed Suboperations [{}] does not match " +
-                    "size of Failed SOP Instance UID List [{}] in C-MOVE-RSP from {}",
-                    as, failed, failedSOPInstanceUIDList.length, fallbackCMoveSCP);
-        }
-        for (String iuid : failedSOPInstanceUIDList) {
-            failedIUIDs.add(iuid);
-        }
-        String concat = StringUtils.concat(failedSOPInstanceUIDList, '\\');
-        if (concat.length() > MAX_FAILED_IUIDS_LEN) {
-            LOG.warn("{}: Failed SOP Instance UID List [{}] in C-MOVE-RSP from {} too large to persist in DB",
-                    as, failed, fallbackCMoveSCP);
-            return def;
-        }
-        return concat;
+        return keys;
     }
 
-    private int retryRetrieveFrom(RetrieveContext ctx, PresentationContext pc, Attributes rq, StudyInfo studyInfo,
-                                  Collection<String> failedIUIDs) {
-        Association as = ctx.getRequestAssociation();
-        ArchiveAEExtension arcAE = ctx.getArchiveAEExtension();
-        String fallbackCMoveSCP = arcAE.fallbackCMoveSCP();
-        String fallbackCMoveSCPDestination = arcAE.fallbackCMoveSCPDestination();
-        String studyInstanceUID = studyInfo.getStudyInstanceUID();
-        String failedIUIDList = studyInfo.getFailedSOPInstanceUIDList();
-        int maxRetrieveRetries = arcAE.fallbackCMoveSCPRetries();
-        if (maxRetrieveRetries >= 0 && studyInfo.getFailedRetrieves() > maxRetrieveRetries ) {
-            LOG.warn("{}: Maximal number of retries[{}] to retrieve objects of study[{}] from {} exceeded",
-                    as, maxRetrieveRetries, studyInstanceUID, fallbackCMoveSCP);
-            return 0;
+    private static class SeriesKey {
+        final String studyIUID;
+        final String seriesIUID;
+
+        SeriesKey(Attributes attrs) {
+            studyIUID = attrs.getString(Tag.StudyInstanceUID);
+            seriesIUID = attrs.getString(Tag.SeriesInstanceUID);
         }
-        int retrieved = 0;
-        LOG.info("{}: retry to retrieve objects of study[{}] from {}", as, studyInstanceUID, fallbackCMoveSCP);
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+
+            SeriesKey seriesKey = (SeriesKey) o;
+
+            if (!studyIUID.equals(seriesKey.studyIUID)) return false;
+            return seriesIUID.equals(seriesKey.seriesIUID);
+
+        }
+
+        @Override
+        public int hashCode() {
+            int result = studyIUID.hashCode();
+            result = 31 * result + seriesIUID.hashCode();
+            return result;
+        }
+
+        public Attributes makeKeys(QueryRetrieveLevel2 qrLevel, Collection<String> iuids) {
+            Attributes keys = new Attributes(4);
+            keys.setString(Tag.QueryRetrieveLevel, VR.CS, qrLevel.toString());
+            if (qrLevel == QueryRetrieveLevel2.IMAGE)
+                keys.setString(Tag.SOPInstanceUID, VR.UI, iuids.toArray(new String[iuids.size()]));
+            keys.setString(Tag.SeriesInstanceUID, VR.UI, seriesIUID);
+            keys.setString(Tag.StudyInstanceUID, VR.UI, studyIUID);
+            return keys;
+        }
+    }
+
+    private RetrieveContext newRetrieveContext(Association as, Attributes rq, QueryRetrieveLevel2 qrLevel,
+                                               Attributes keys) throws DicomServiceException {
         try {
-            ForwardRetrieveTask retrieveTask = moveSCU.newForwardRetrieveTask(
-                    ctx.getLocalApplicationEntity(), as, pc,
-                    changeMoveDestination(rq, fallbackCMoveSCPDestination),
-                    failedIUIDList.equals("*")
-                            ? mkStudyRequest(studyInstanceUID)
-                            : mkInstanceRequest(studyInstanceUID, failedIUIDList),
-                    as.getCallingAET(), fallbackCMoveSCP, false, false);
-            retrieveTask.run();
-            Attributes rsp = retrieveTask.getFinalMoveRSP();
-            Attributes rspData = retrieveTask.getFinalMoveRSPData();
-            int finalMoveRSPStatus = rsp.getInt(Tag.Status, -1);
-            if (finalMoveRSPStatus == Status.Success || finalMoveRSPStatus == Status.OneOrMoreFailures) {
-                int failed = rsp.getInt(Tag.NumberOfFailedSuboperations, 0);
-                retrieved = rsp.getInt(Tag.NumberOfCompletedSuboperations, 0) +
-                        rsp.getInt(Tag.NumberOfWarningSuboperations, 0);
-                if (failed == 0) {
-                    retrieveService.clearFailedSOPInstanceUIDList(studyInstanceUID);
-                    return retrieved;
-                }
-                failedIUIDList = failedToRetrieve(ctx, failed, retrieved, rspData, failedIUIDList, failedIUIDs);
-             } else {
-                LOG.warn("{}: Failed to retry retrieve of objects of study[{}] from {} - status={}H, errorComment={}",
-                        as, studyInstanceUID, fallbackCMoveSCP, Integer.toHexString(finalMoveRSPStatus),
-                        rsp.getString(Tag.ErrorComment));
-            }
-        } catch (Exception e) {
-            LOG.warn("{}: Failed to retry retrieve of objects of study[{}] from {}",
-                    as, studyInstanceUID, fallbackCMoveSCP, e);
+            return retrieveService.newRetrieveContextMOVE(as, rq, qrLevel, keys);
+        } catch (ConfigurationNotFoundException e) {
+            throw new DicomServiceException(Status.MoveDestinationUnknown, e.getMessage());
+        } catch (ConfigurationException e) {
+            throw new DicomServiceException(Status.UnableToPerformSubOperations, e);
         }
-        retrieveService.failedToRetrieveStudy(studyInstanceUID, failedIUIDList);
-        return retrieved;
     }
 
-    private Attributes mkStudyRequest(String studyInstanceUID) {
-        Attributes keys = new Attributes(2);
-        keys.setString(Tag.QueryRetrieveLevel, VR.CS, "STUDY");
-        keys.setString(Tag.StudyInstanceUID, VR.UI, studyInstanceUID);
-        return keys;
+    private boolean retryFailedRetrieve(RetrieveContext ctx, QueryRetrieveLevel2 qrLevel) {
+        HashSet<String> uids = new HashSet<>();
+        ArchiveAEExtension arcae = ctx.getArchiveAEExtension();
+        int maxRetrieveRetries = arcae.fallbackCMoveSCPRetries();
+        switch (qrLevel) {
+            case STUDY:
+                uids.addAll(Arrays.asList(ctx.getStudyInstanceUIDs()));
+                for (StudyInfo studyInfo : ctx.getStudyInfos()) {
+                    if (studyInfo.getFailedSOPInstanceUIDList() != null) {
+                        if (maxRetrieveRetries == 0 || studyInfo.getFailedRetrieves() < maxRetrieveRetries)
+                            return true;
+                        LOG.warn("{}: Maximal number of retries[{}] to retrieve objects of study[{}] from {} exceeded",
+                                ctx.getRequestAssociation(), maxRetrieveRetries, studyInfo.getStudyInstanceUID(),
+                                arcae.fallbackCMoveSCP());
+                    }
+                    uids.remove(studyInfo.getStudyInstanceUID());
+                }
+            case SERIES:
+                uids.addAll(Arrays.asList(ctx.getSeriesInstanceUIDs()));
+                for (SeriesInfo seriesInfo : ctx.getSeriesInfos()) {
+                    if (seriesInfo.getFailedSOPInstanceUIDList() != null) {
+                        if (maxRetrieveRetries == 0 || seriesInfo.getFailedRetrieves() < maxRetrieveRetries)
+                            return true;
+                        LOG.warn("{}: Maximal number of retries[{}] to retrieve objects of series[{}] from {} exceeded",
+                                ctx.getRequestAssociation(), maxRetrieveRetries, seriesInfo.getSeriesInstanceUID(),
+                                arcae.fallbackCMoveSCP());
+                    }
+                    uids.remove(seriesInfo.getSeriesInstanceUID());
+                }
+        }
+        return !uids.isEmpty();
     }
-
-    private Attributes mkInstanceRequest(String studyInstanceUID, String failedSOPInstanceUIDList) {
-        Attributes keys = new Attributes(3);
-        keys.setString(Tag.SOPInstanceUID, VR.UI, failedSOPInstanceUIDList);
-        keys.setString(Tag.QueryRetrieveLevel, VR.CS, "IMAGE");
-        keys.setString(Tag.StudyInstanceUID, VR.UI, studyInstanceUID);
-        return keys;
-    }
-
-    private Attributes changeQueryRetrieveLevel(Attributes keys, MoveForwardLevel moveForwardLevel) {
-        return moveForwardLevel != null ? moveForwardLevel.changeQueryRetrieveLevel(keys) : keys;
-    }
-
-    private Attributes changeMoveDestination(Attributes rq, String newMoveDest) {
-        Attributes changed = new Attributes(rq);
-        changed.setString(Tag.MoveDestination, VR.AE, newMoveDest);
-        return changed;
-    }
-
 }
